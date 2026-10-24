@@ -40,6 +40,8 @@ async function boot(): Promise<void> {
     return;
   }
 
+  await ui.loadCrashGrid();
+
   const sim = new Simulation(ui);
   sim.destIdx = 1 + Math.floor(Math.random() * 3);
   const audio = new CarAudio();
@@ -48,6 +50,7 @@ async function boot(): Promise<void> {
   const unlock = () => { if (audio.enabled) audio.unlock(); };
   window.addEventListener('pointerdown', unlock, { capture: true });
   window.addEventListener('keydown', unlock, { capture: true });
+  ui.drawCityMap('all');
 
   world.resize();
   new ResizeObserver(() => world.resize()).observe(stage);
@@ -57,6 +60,19 @@ async function boot(): Promise<void> {
   // Let traffic build up before the first frame so the rotary is already busy.
   for (let i = 0; i < 900; i++) sim.step(0.05);
   world.resetView(sim.player.pose.h);
+
+  // Tab switching
+  document.querySelectorAll<HTMLButtonElement>('[role="tab"]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const tab = btn.dataset.tab!;
+      document.querySelectorAll('[role="tab"]').forEach((b) => b.setAttribute('aria-selected', 'false'));
+      btn.setAttribute('aria-selected', 'true');
+      document.querySelectorAll<HTMLElement>('.tab-panel').forEach((p) => { p.hidden = true; });
+      const panel = document.getElementById(`tab-${tab}`);
+      if (panel) panel.hidden = false;
+      if (tab === 'map') ui.drawCityMap();
+    });
+  });
 
   let last = performance.now();
   const frame = (t: number) => {

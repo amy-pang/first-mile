@@ -1,5 +1,7 @@
 /** Everything on the page outside the 3D view: controls, cabin instruments, route map, trip times, coach feed and the guide. */
 import { DEG, DEND, DS, DY, MPHF, ORD, RC, RH, R_IN, ROADS, RW, TAU, type Road } from './constants';
+import { bikeMultiplierAt } from './bike-density';
+import { CRASH_STATS } from './crash-stats';
 import { roadPt } from './math';
 import { poseAt } from './path';
 import type { CarAudio } from './audio';
@@ -7,6 +9,15 @@ import { CATEGORIES, type CoachKind, type RunResult, type SignEventKey, type Sim
 import { diagramRule, GUIDE_ORDER, SIGN_INFO, SIGNS, signImg } from './signs';
 import { conditionsFor, fmtT, parseT, PHASE_LABEL, TRAFFIC_LABEL, WEATHER_LABEL, type Weather } from './trip';
 import type { World } from './world';
+
+interface CrashGrid {
+  grid: number;
+  latMin: number; latMax: number;
+  lonMin: number; lonMax: number;
+  all: number[];
+  cyclist: number[];
+  pedestrian: number[];
+}
 
 const el = <T extends HTMLElement = HTMLElement>(id: string): T => {
   const e = document.getElementById(id);
@@ -51,6 +62,8 @@ export class UI implements SimHooks {
   private readonly guideImgs = new Map<string, HTMLImageElement>();
   private readonly mini = el<HTMLCanvasElement>('mini');
   private readonly mctx = this.mini.getContext('2d')!;
+  private crashGrid: CrashGrid | null = null;
+  private mapLayer: 'all' | 'cyclist' | 'pedestrian' = 'all';
 
   constructor() {
     this.buildGuide();
@@ -66,6 +79,8 @@ export class UI implements SimHooks {
     this.buildGauge();
     this.bindControls();
     this.bindPlanner();
+    this.buildCrashStats();
+    this.bindMapLayerToggles();
   }
 
   /** Read the planned route and times, then start a fresh run. */
@@ -574,6 +589,9 @@ export class UI implements SimHooks {
     const ems = el<HTMLInputElement>('t-ems').checked;
     if (ems) chip('Ambulance on the way');
     if (ok && a !== null) chip(`${a - l} min to get there`);
+    const mult = bikeMultiplierAt(l);
+    if (mult > 2.5) chip(`~${mult.toFixed(1)}× typical cyclist activity`, 'warn');
+    else if (mult < 0.3) chip('Low cyclist activity at this hour');
     const sim = this.sim;
     const pending = this.planStart !== sim.startIdx || this.planDest !== sim.destIdx || l !== sim.trip.leave || a !== sim.trip.arrive
       || w !== sim.weather || ems !== sim.emsPlanned;
@@ -755,5 +773,138 @@ export class UI implements SimHooks {
       const img = this.guideImgs.get(key);
       if (img) img.src = signImg(key, SIGN_INFO[key].spec());
     }
+  }
+
+  /* ---------- city map ---------- */
+
+  async loadCrashGrid(): Promise<void> {
+    try {
+      const res = await fetch('./crash-grid.json');
+      if (res.ok) this.crashGrid = await res.json() as CrashGrid;
+    } catch {
+      /* no crash data; map still renders without heatmap */
+    }
+  }
+
+  drawCityMap(layer: 'all' | 'cyclist' | 'pedestrian' = this.mapLayer): void {
+    this.mapLayer = layer;
+    const canvas = document.getElementById('city-map') as HTMLCanvasElement | null;
+    if (!canvas) return;
+    const g = canvas.getContext('2d');
+    if (!g) return;
+    const W = canvas.width;
+    const H = canvas.height;
+
+    // Bounding box for Cambridge
+    const LAT_MIN = 42.353, LAT_MAX = 42.403;
+    const LON_MIN = -71.159, LON_MAX = -71.069;
+
+    const proj = (lat: number, lon: number): [number, number] => [
+      (lon - LON_MIN) / (LON_MAX - LON_MIN) * W,
+      H - (lat - LAT_MIN) / (LAT_MAX - LAT_MIN) * H,
+    ];
+
+    // Background
+    g.fillStyle = '#0F1A14';
+    g.fillRect(0, 0, W, H);
+
+    // Heatmap
+    const grid = this.crashGrid;
+    if (grid) {
+      const data = layer === 'cyclist' ? grid.cyclist : layer === 'pedestrian' ? grid.pedestrian : grid.all;
+      const maxVal = Math.max(...data.filter((v) => v > 0));
+      const GRID = grid.grid;
+      const cellLat = (LAT_MAX - LAT_MIN) / GRID;
+      const cellLon = (LON_MAX - LON_MIN) / GRID;
+      for (let r = 0; r < GRID; r++) {
+        for (let c = 0; c < GRID; c++) {
+          const v = data[r * GRID + c];
+          if (!v) continue;
+          const norm = Math.sqrt(v) / Math.sqrt(maxVal);
+          const lat = LAT_MIN + (r + 0.5) * cellLat;
+          const lon = LON_MIN + (c + 0.5) * cellLon;
+          const [x, y] = proj(lat, lon);
+          const radius = 3 + norm * 7;
+          const alpha = 0.25 + norm * 0.55;
+          const color = layer === 'cyclist'
+            ? `rgba(255,160,0,${alpha})`
+            : layer === 'pedestrian'
+            ? `rgba(200,100,255,${alpha})`
+            : `rgba(255,80,80,${alpha})`;
+          g.beginPath();
+          g.arc(x, y, radius, 0, Math.PI * 2);
+          g.fillStyle = color;
+          g.fill();
+        }
+      }
+    }
+
+    // Practice rotary pin (near Alewife Brook / Route 2/16 cluster)
+    const [px, py] = proj(42.393, -71.141);
+    g.beginPath();
+    g.arc(px, py, 7, 0, Math.PI * 2);
+    g.fillStyle = 'rgba(242,183,5,0.9)';
+    g.fill();
+    g.beginPath();
+    g.arc(px, py, 10, 0, Math.PI * 2);
+    g.strokeStyle = '#F2B705';
+    g.lineWidth = 1.5;
+    g.stroke();
+    g.font = '600 10px Overpass, sans-serif';
+    g.fillStyle = '#E8ECEF';
+    g.textAlign = 'left';
+    g.fillText('Practice rotary', px + 13, py + 4);
+
+    // North arrow
+    g.fillStyle = '#AEB6BD';
+    g.font = '700 9px Overpass, sans-serif';
+    g.textAlign = 'center';
+    g.fillText('N', W - 12, 14);
+    g.beginPath();
+    g.moveTo(W - 12, 18);
+    g.lineTo(W - 9, 26);
+    g.lineTo(W - 12, 24);
+    g.lineTo(W - 15, 26);
+    g.closePath();
+    g.fillStyle = '#AEB6BD';
+    g.fill();
+  }
+
+  private bindMapLayerToggles(): void {
+    const ids: Array<['layer-all' | 'layer-cyc' | 'layer-ped', 'all' | 'cyclist' | 'pedestrian']> = [
+      ['layer-all', 'all'],
+      ['layer-cyc', 'cyclist'],
+      ['layer-ped', 'pedestrian'],
+    ];
+    for (const [id, layer] of ids) {
+      const btn = document.getElementById(id);
+      if (!btn) continue;
+      btn.addEventListener('click', () => {
+        this.drawCityMap(layer);
+        for (const [bid] of ids) {
+          document.getElementById(bid)?.setAttribute('aria-pressed', bid === id ? 'true' : 'false');
+        }
+      });
+    }
+  }
+
+  private buildCrashStats(): void {
+    const host = document.getElementById('map-stats');
+    if (!host) return;
+    const stat = (value: string, label: string, cls = '') => {
+      const d = document.createElement('div');
+      d.className = `stat-chip${cls ? ' ' + cls : ''}`;
+      const b = document.createElement('b');
+      b.textContent = value;
+      const s = document.createElement('span');
+      s.textContent = label;
+      d.append(b, s);
+      host.append(d);
+    };
+    stat(CRASH_STATS.totalCrashes.toLocaleString(), 'Cambridge crashes on record');
+    stat(`${CRASH_STATS.cyclistPct}%`, 'involve a cyclist', 'warn');
+    stat(`${CRASH_STATS.pedestrianPct}%`, 'involve a pedestrian', 'warn');
+    stat(`${CRASH_STATS.darkPct}%`, 'cyclist/ped crashes in low light', 'bad');
+    stat('6 PM', 'peak hour for cyclist crashes');
   }
 }

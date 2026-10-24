@@ -17,39 +17,47 @@
     <p class="tagline">Your first mile on Massachusetts roads. Sit behind the wheel, approach a rotary, learn each sign as you pass it, and get coached on the rules newcomers miss.</p>
   </header>
 
-  <div class="app">
-    <div class="stage-col">
-      <div class="stage" id="stage">
-        <canvas class="view" id="view" aria-label="View from the driver's seat approaching a rotary, with Massachusetts road signs"></canvas>
-        <div class="wipers" id="wipers" aria-hidden="true" hidden><i></i><i></i></div>
-        <div class="cabin" aria-hidden="true">
-          <svg class="frame" viewBox="0 0 1600 1000" preserveAspectRatio="none">
-            <path d="M0 0 H1600 V52 Q800 86 0 52 Z" fill="var(--cab)"/>
-            <path d="M0 0 L205 0 L72 748 L0 760 Z" fill="var(--cab)"/>
-            <path d="M1600 0 L1395 0 L1528 748 L1600 760 Z" fill="var(--cab)"/>
-            <path d="M0 742 Q800 652 1600 742 V1000 H0 Z" fill="var(--cab-dash)"/>
-            <path d="M0 742 Q800 652 1600 742" fill="none" stroke="var(--cab-edge)" stroke-width="6"/>
-            <path d="M880 760 Q1080 742 1290 760 L1300 1000 H870 Z" fill="var(--cab)" opacity=".55"/>
-          </svg>
-          <div class="mirror" id="mirror"></div>
-          <div class="side-mirror left" id="mirror-l"></div>
-          <div class="side-mirror right" id="mirror-r"></div>
-          <div class="cluster">
-            <svg viewBox="0 0 200 128" id="gauge">
-              <rect x="2" y="2" width="196" height="124" rx="22" fill="#0B0D10" stroke="var(--cab-edge)" stroke-width="3"/>
-              <g id="ticks"></g>
-              <text x="100" y="86" text-anchor="middle" fill="var(--cab-ink)" font-family="Overpass Mono, monospace" font-weight="700" font-size="30" id="g-mph">0</text>
-              <text x="100" y="104" text-anchor="middle" fill="var(--cab-dim)" font-family="Overpass Mono, monospace" font-size="10" letter-spacing="1.5">MPH</text>
-              <text x="100" y="120" text-anchor="middle" fill="var(--cab-dim)" font-family="Overpass, sans-serif" font-weight="800" font-size="10" id="g-zone">LIMIT 25</text>
-              <line x1="100" y1="84" x2="100" y2="26" stroke="#F2B705" stroke-width="3.5" stroke-linecap="round" id="needle" transform="rotate(-120 100 84)"/>
-              <circle cx="100" cy="84" r="5" fill="#F2B705"/>
-              <path d="M30 22 l-12 8 l12 8 z" fill="#2A3B30" id="ind-l"/>
-              <path d="M170 22 l12 8 l-12 8 z" fill="#2A3B30" id="ind-r"/>
-              <g id="ind-lights" fill="#2A3B30" stroke="#2A3B30" stroke-width="1.6" stroke-linecap="round">
-                <path d="M104 9 a7 7 0 0 1 0 14 q-3 -7 0 -14 z" stroke="none"/>
-                <path d="M100 11 h-7 M100 16 h-7 M100 21 h-7" fill="none"/>
-              </g>
+  <nav class="tab-bar" role="tablist" aria-label="App sections">
+    <button role="tab" aria-selected="true"  data-tab="drive" aria-controls="tab-drive">Drive</button>
+    <button role="tab" aria-selected="false" data-tab="map"   aria-controls="tab-map">Crash Map</button>
+    <button role="tab" aria-selected="false" data-tab="learn" aria-controls="tab-learn">Before You Drive</button>
+  </nav>
+
+  <div class="tab-panel" id="tab-drive">
+    <div class="app">
+      <div class="stage-col">
+        <div class="stage" id="stage">
+          <canvas class="view" id="view" aria-label="View from the driver's seat approaching a rotary, with Massachusetts road signs"></canvas>
+          <div class="wipers" id="wipers" aria-hidden="true" hidden><i></i><i></i></div>
+          <div class="cabin" aria-hidden="true">
+            <svg class="frame" viewBox="0 0 1600 1000" preserveAspectRatio="none">
+              <path d="M0 0 H1600 V52 Q800 86 0 52 Z" fill="var(--cab)"/>
+              <path d="M0 0 L205 0 L72 748 L0 760 Z" fill="var(--cab)"/>
+              <path d="M1600 0 L1395 0 L1528 748 L1600 760 Z" fill="var(--cab)"/>
+              <path d="M0 742 Q800 652 1600 742 V1000 H0 Z" fill="var(--cab-dash)"/>
+              <path d="M0 742 Q800 652 1600 742" fill="none" stroke="var(--cab-edge)" stroke-width="6"/>
+              <path d="M880 760 Q1080 742 1290 760 L1300 1000 H870 Z" fill="var(--cab)" opacity=".55"/>
             </svg>
+            <div class="mirror" id="mirror"></div>
+            <div class="side-mirror left" id="mirror-l"></div>
+            <div class="side-mirror right" id="mirror-r"></div>
+            <div class="cluster">
+              <svg viewBox="0 0 200 128" id="gauge">
+                <rect x="2" y="2" width="196" height="124" rx="22" fill="#0B0D10" stroke="var(--cab-edge)" stroke-width="3"/>
+                <g id="ticks"></g>
+                <text x="100" y="86" text-anchor="middle" fill="var(--cab-ink)" font-family="Overpass Mono, monospace" font-weight="700" font-size="30" id="g-mph">0</text>
+                <text x="100" y="104" text-anchor="middle" fill="var(--cab-dim)" font-family="Overpass Mono, monospace" font-size="10" letter-spacing="1.5">MPH</text>
+                <text x="100" y="120" text-anchor="middle" fill="var(--cab-dim)" font-family="Overpass, sans-serif" font-weight="800" font-size="10" id="g-zone">LIMIT 25</text>
+                <line x1="100" y1="84" x2="100" y2="26" stroke="#F2B705" stroke-width="3.5" stroke-linecap="round" id="needle" transform="rotate(-120 100 84)"/>
+                <circle cx="100" cy="84" r="5" fill="#F2B705"/>
+                <path d="M30 22 l-12 8 l12 8 z" fill="#2A3B30" id="ind-l"/>
+                <path d="M170 22 l12 8 l-12 8 z" fill="#2A3B30" id="ind-r"/>
+                <g id="ind-lights" fill="#2A3B30" stroke="#2A3B30" stroke-width="1.6" stroke-linecap="round">
+                  <path d="M104 9 a7 7 0 0 1 0 14 q-3 -7 0 -14 z" stroke="none"/>
+                  <path d="M100 11 h-7 M100 16 h-7 M100 21 h-7" fill="none"/>
+                </g>
+              </svg>
+            </div>
           </div>
           <svg class="wheel" id="wheel" viewBox="0 0 200 200">
             <circle cx="100" cy="100" r="86" fill="none" stroke="#202328" stroke-width="17"/>
@@ -81,7 +89,7 @@
           </div>
         </div>
       </div>
-      <p class="caption">Route shields and sign styles follow Massachusetts conventions; the rotary is a generic practice layout, not one specific real intersection. The rear-view and side mirrors show traffic behind you.</p>
+      <p class="caption">Route shields and sign styles follow Massachusetts conventions; the rotary is a generic practice layout, not one specific real intersection. The rear-view and left and right side mirrors show traffic behind you.</p>
     </div>
 
     <aside class="rail">
@@ -159,47 +167,71 @@
     </aside>
   </div>
 
-  <section class="learn" aria-labelledby="learn-h">
-    <div class="eyebrow">Before you drive</div>
-    <h2 id="learn-h">Massachusetts rules and signs, explained</h2>
-    <p>Everything the simulation checks, in plain language. Read it once, then drive the run and watch for each sign.</p>
-
-    <div class="rules">
-      <div class="card">
-        <h3>Driving a rotary, step by step</h3>
-        <ol class="steps">
-          <li><span><b>Slow down early and count your exit.</b> The green diagram sign shows every exit with its route shield. Know whether yours is the 1st, 2nd or 3rd before you arrive.</span></li>
-          <li><span><b>Watch the crosswalk.</b> If someone is crossing, stop before the white bars. People in a crosswalk have the right of way.</span></li>
-          <li><span><b>Yield at the white triangles and look left.</b> Cars already in the rotary have the right of way, and they come at you from the left.</span></li>
-          <li><span><b>Turn right into a safe gap.</b> Traffic in a rotary always travels counterclockwise. Never turn left into it.</span></li>
-          <li><span><b>Keep moving at a low speed.</b> Around 20 mph is plenty. Don't stop inside the rotary unless something blocks you.</span></li>
-          <li><span><b>Signal right, then exit.</b> Turn on your right signal after you pass the exit before yours, so drivers waiting to enter know you are leaving.</span></li>
-        </ol>
+  <div class="tab-panel" id="tab-map" hidden>
+    <div class="map-page">
+      <div class="map-main">
+        <div class="eyebrow">Real Cambridge data · 17,230 crash records</div>
+        <h2 class="map-title">Crash Hotspots Near the Practice Rotary</h2>
+        <p class="map-desc">Historical crash records from Cambridge Police, plotted by location. The yellow pin marks where the practice rotary is set. Use the filters to isolate cyclist or pedestrian incidents.</p>
+        <canvas id="city-map" width="840" height="540" aria-label="Map of Cambridge showing crash hotspots near the practice rotary area"></canvas>
+        <div class="map-layer-toggle" role="group" aria-label="Heatmap layer">
+          <button type="button" id="layer-all" aria-pressed="true">All crashes</button>
+          <button type="button" id="layer-cyc" aria-pressed="false">Cyclists</button>
+          <button type="button" id="layer-ped" aria-pressed="false">Pedestrians</button>
+        </div>
       </div>
-      <div class="card">
-        <h3>Other Massachusetts rules newcomers miss</h3>
-        <ul class="other">
-          <li><b>Hands-free only.</b> Since February 2020, drivers may not hold a phone while driving. Mount it and use voice or single-tap controls.</li>
-          <li><b>Yield to emergency vehicles.</b> When you hear a siren or see flashing lights, let the vehicle go first. In a rotary, don't enter in front of it and don't stop inside the circle: exit, then pull to the right and slow down or stop until it passes.</li>
-          <li><b>Wipers on, headlights on.</b> Whenever your windshield wipers are running, your headlights must be on too.</li>
-          <li><b>Default speed limits.</b> Boston's default is 25 mph unless posted. Elsewhere, thickly settled areas default to 30 mph.</li>
-          <li><b>Right on red is allowed</b> after a full stop, unless a "No Turn on Red" sign is posted. Boston has many of them.</li>
-          <li><b>Yellow means advice, white means law.</b> Yellow speed plaques are advisory; white speed limit signs are the legal maximum.</li>
-        </ul>
-        <p class="fine">Summarized for practice. Check the official Massachusetts Driver's Manual from the RMV before your road test.</p>
+      <aside class="map-sidebar">
+        <div class="eyebrow">By the numbers</div>
+        <div class="map-stats" id="map-stats"></div>
+        <p class="map-source">Source: Cambridge Police crash records. Coordinates available for 8,877 of 17,230 records; remainder plotted without location.</p>
+      </aside>
+    </div>
+  </div>
+
+  <div class="tab-panel" id="tab-learn" hidden>
+    <section class="learn" aria-labelledby="learn-h">
+      <div class="eyebrow">Before you drive</div>
+      <h2 id="learn-h">Massachusetts rules and signs, explained</h2>
+      <p>Everything the simulation checks, in plain language. Read it once, then drive the run and watch for each sign.</p>
+
+      <div class="rules">
+        <div class="card">
+          <h3>Driving a rotary, step by step</h3>
+          <ol class="steps">
+            <li><span><b>Slow down early and count your exit.</b> The green diagram sign shows every exit with its route shield. Know whether yours is the 1st, 2nd or 3rd before you arrive.</span></li>
+            <li><span><b>Watch the crosswalk.</b> If someone is crossing, stop before the white bars. People in a crosswalk have the right of way.</span></li>
+            <li><span><b>Yield at the white triangles and look left.</b> Cars already in the rotary have the right of way, and they come at you from the left.</span></li>
+            <li><span><b>Turn right into a safe gap.</b> Traffic in a rotary always travels counterclockwise. Never turn left into it.</span></li>
+            <li><span><b>Keep moving at a low speed.</b> Around 20 mph is plenty. Don't stop inside the rotary unless something blocks you.</span></li>
+            <li><span><b>Signal right, then exit.</b> Turn on your right signal after you pass the exit before yours, so drivers waiting to enter know you are leaving.</span></li>
+          </ol>
+        </div>
+        <div class="card">
+          <h3>Other Massachusetts rules newcomers miss</h3>
+          <ul class="other">
+            <li><b>Hands-free only.</b> Since February 2020, drivers may not hold a phone while driving. Mount it and use voice or single-tap controls.</li>
+            <li><b>Yield to emergency vehicles.</b> When you hear a siren or see flashing lights, let the vehicle go first. In a rotary, don't enter in front of it and don't stop inside the circle: exit, then pull to the right and slow down or stop until it passes.</li>
+            <li><b>Wipers on, headlights on.</b> Whenever your windshield wipers are running, your headlights must be on too.</li>
+            <li><b>Default speed limits.</b> Boston's default is 25 mph unless posted. Elsewhere, thickly settled areas default to 30 mph.</li>
+            <li><b>Right on red is allowed</b> after a full stop, unless a "No Turn on Red" sign is posted. Boston has many of them.</li>
+            <li><b>Yellow means advice, white means law.</b> Yellow speed plaques are advisory; white speed limit signs are the legal maximum.</li>
+          </ul>
+          <p class="fine">Summarized for practice. Check the official Massachusetts Driver's Manual from the RMV before your road test.</p>
+        </div>
       </div>
-    </div>
 
-    <div class="card score-card">
-      <h3>How your score works</h3>
-      <p>Your score is out of 100 and comes from how you drive, not whether you reach your exit. Steady habits lose points for every second they slip, more the further off you are. One-off rules lose a set amount. You pass with <b>80 or more</b> and no critical error. Running late never costs points.</p>
-      <ul class="cats wide" id="score-rules"></ul>
-      <p class="fine">Critical errors fail the run whatever the score, as on a road test: any collision, driving through an occupied crosswalk, failing to yield entering the rotary, or pulling out in front of an ambulance.</p>
-    </div>
+      <div class="card score-card">
+        <h3>How your score works</h3>
+        <p>Your score is out of 100 and comes from how you drive, not whether you reach your exit. Steady habits lose points for every second they slip, more the further off you are. One-off rules lose a set amount. You pass with <b>80 or more</b> and no critical error. Running late never costs points.</p>
+        <ul class="cats wide" id="score-rules"></ul>
+        <p class="fine">Critical errors fail the run whatever the score, as on a road test: any collision, driving through an occupied crosswalk, failing to yield entering the rotary, or pulling out in front of an ambulance.</p>
+      </div>
 
-    <div class="signs-head"><h3>Signs you'll pass in this run</h3></div>
-    <div class="signs" id="signs"></div>
-  </section>
+      <div class="signs-head"><h3>Signs you'll pass in this run</h3></div>
+      <div class="signs" id="signs"></div>
+    </section>
+  </div>
+
 </div>
 
 <script type="module" src="/src/main.ts"></script>
