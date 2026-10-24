@@ -155,6 +155,7 @@ async function boot(): Promise<void> {
       const panel = document.getElementById(`tab-${tab}`);
       if (panel) panel.hidden = false;
       if (tab === 'map') ui.drawCityMap();
+      if (tab === 'runs') void ui.loadAndRenderRuns();
     });
   });
 
