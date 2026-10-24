@@ -186,8 +186,11 @@
       <div class="map-main">
         <div class="eyebrow">Real Cambridge data · 17,230 crash records</div>
         <h2 class="map-title">Crash Hotspots Near the Practice Rotary</h2>
-        <p class="map-desc">Historical crash records from Cambridge Police, plotted by location. The yellow pin marks where the practice rotary is set. Use the filters to isolate cyclist or pedestrian incidents.</p>
-        <canvas id="city-map" width="840" height="540" aria-label="Map of Cambridge showing crash hotspots near the practice rotary area"></canvas>
+        <p class="map-desc">Historical crash records from Cambridge Police, plotted by location over the city's main roads. The yellow pin marks where the practice rotary is set. Use the filters to isolate cyclist or pedestrian incidents, and hover anywhere on the map to see the crash count for that area.</p>
+        <div class="map-canvas-wrap">
+          <canvas id="city-map" width="840" height="540" aria-label="Map of Cambridge showing crash hotspots near the practice rotary area"></canvas>
+          <div class="map-tooltip" id="map-tooltip" hidden></div>
+        </div>
         <div class="map-layer-toggle" role="group" aria-label="Heatmap layer">
           <button type="button" id="layer-all" aria-pressed="true">All crashes</button>
           <button type="button" id="layer-cyc" aria-pressed="false">Cyclists</button>
@@ -197,7 +200,7 @@
       <aside class="map-sidebar">
         <div class="eyebrow">By the numbers</div>
         <div class="map-stats" id="map-stats"></div>
-        <p class="map-source">Source: Cambridge Police crash records. Coordinates available for 8,877 of 17,230 records; remainder plotted without location.</p>
+        <p class="map-source">Sources: Cambridge Police crash records (8,877 of 17,230 geolocated); street centerlines from the City of Cambridge open data portal.</p>
       </aside>
     </div>
   </div>

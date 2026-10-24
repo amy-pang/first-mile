@@ -253,7 +253,11 @@ h1 .plate{display:inline-block; margin-left:.06em; background:var(--guide); colo
 .map-source{font-size:12px; color:var(--muted); margin:8px 0 0}
 
 /* city crash map */
-#city-map{display:block; width:100%; height:auto; border-radius:8px; background:#0F1A14}
+.map-canvas-wrap{position:relative; display:block}
+#city-map{display:block; width:100%; height:auto; border-radius:8px; background:#0F1A14; cursor:crosshair}
+.map-tooltip{position:absolute; pointer-events:none; z-index:5; transform:translate(-50%,-115%); background:rgba(12,18,15,.94); color:#E8ECEF; border:1px solid rgba(255,255,255,.15); border-radius:8px; padding:7px 10px; font-size:12px; line-height:1.35; white-space:nowrap; box-shadow:0 6px 18px rgba(0,0,0,.4)}
+.map-tooltip b{font-family:var(--mono); font-weight:700}
+.map-tooltip .mt-sub{color:#AEB6BD; font-size:11px}
 .map-layer-toggle{display:flex; gap:6px; margin-top:8px; flex-wrap:wrap}
 .map-layer-toggle button{font:inherit; font-size:12px; font-weight:700; padding:4px 12px; border-radius:999px; border:1.5px solid var(--line); background:transparent; color:var(--muted); cursor:pointer}
 .map-layer-toggle button[aria-pressed="true"]{background:var(--guide); border-color:var(--guide); color:var(--guide-ink)}
