@@ -2,6 +2,19 @@ import type { User } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 import type { Simulation } from './sim';
 
+export interface DriveRun {
+  id: string;
+  created_at: string;
+  overall_score: number;
+  right_of_way: number;
+  speed_control: number;
+  following_dist: number;
+  lane_pos_steer: number;
+  signals_checks: number;
+  blind_spots: number;
+  additional_flags: string;
+}
+
 export class AuthManager {
   user: User | null = null;
   onUserChange: ((user: User | null) => void) | null = null;
@@ -28,6 +41,15 @@ export class AuthManager {
 
   async signOut(): Promise<void> {
     await supabase.auth.signOut();
+  }
+
+  async fetchRuns(): Promise<{ runs: DriveRun[]; error: string | null }> {
+    if (!this.user) return { runs: [], error: null };
+    const { data, error } = await supabase
+      .from('drives')
+      .select('id, created_at, overall_score, right_of_way, speed_control, following_dist, lane_pos_steer, signals_checks, blind_spots, additional_flags')
+      .order('created_at', { ascending: false });
+    return { runs: (data ?? []) as DriveRun[], error: error?.message ?? null };
   }
 
   async saveRun(sim: Simulation): Promise<string | null> {
