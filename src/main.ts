@@ -113,6 +113,22 @@ async function boot(): Promise<void> {
   await fontsReady(1800);
   ui.fillGuideImages();
 
+  await ui.loadCrashGrid();
+
+  // Tab switching registered before World so tabs work even if WebGL fails.
+  document.querySelectorAll<HTMLButtonElement>('[role="tab"]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const tab = btn.dataset.tab!;
+      document.querySelectorAll('[role="tab"]').forEach((b) => b.setAttribute('aria-selected', 'false'));
+      btn.setAttribute('aria-selected', 'true');
+      document.querySelectorAll<HTMLElement>('.tab-panel').forEach((p) => { p.hidden = true; });
+      const panel = document.getElementById(`tab-${tab}`);
+      if (panel) panel.hidden = false;
+      if (tab === 'map') ui.drawCityMap();
+      if (tab === 'runs') void ui.loadAndRenderRuns();
+    });
+  });
+
   let world: World;
   try {
     world = new World(document.getElementById('view') as HTMLCanvasElement, stage, document.getElementById('mirror')!, [
@@ -123,8 +139,6 @@ async function boot(): Promise<void> {
     showFailure(stage);
     return;
   }
-
-  await ui.loadCrashGrid();
 
   const sim = new Simulation(ui);
   sim.destIdx = 1 + Math.floor(Math.random() * 3);
@@ -144,20 +158,6 @@ async function boot(): Promise<void> {
   // Let traffic build up before the first frame so the rotary is already busy.
   for (let i = 0; i < 900; i++) sim.step(0.05);
   world.resetView(sim.player.pose.h);
-
-  // Tab switching
-  document.querySelectorAll<HTMLButtonElement>('[role="tab"]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const tab = btn.dataset.tab!;
-      document.querySelectorAll('[role="tab"]').forEach((b) => b.setAttribute('aria-selected', 'false'));
-      btn.setAttribute('aria-selected', 'true');
-      document.querySelectorAll<HTMLElement>('.tab-panel').forEach((p) => { p.hidden = true; });
-      const panel = document.getElementById(`tab-${tab}`);
-      if (panel) panel.hidden = false;
-      if (tab === 'map') ui.drawCityMap();
-      if (tab === 'runs') void ui.loadAndRenderRuns();
-    });
-  });
 
   let last = performance.now();
   const frame = (t: number) => {
