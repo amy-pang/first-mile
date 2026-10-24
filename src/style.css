@@ -127,6 +127,7 @@ h1 .plate{display:inline-block; margin-left:.06em; background:var(--guide); colo
 .look-panel{position:absolute; top:22%; max-width:42%; background:var(--hud); color:var(--cab-ink); border-radius:12px; padding:9px 12px 8px; display:flex; flex-direction:column; gap:2px; font-size:clamp(10px,1.3cqi,13px); pointer-events:none}
 .look-panel b{font-family:var(--display); font-weight:800}
 .look-panel.left{left:4%} .look-panel.right{right:4%}
+.g3d-status{position:absolute; left:50%; top:30%; transform:translateX(-50%); background:var(--hud); color:var(--cab-ink); border-radius:12px; padding:10px 16px; max-width:70%; text-align:center; font-size:14px}
 .photo-mode .mirror, .photo-mode .side-mirror, .photo-mode .btn.steer{display:none}
 .wipers{position:absolute; inset:0; pointer-events:none; overflow:hidden}
 .wipers i{position:absolute; top:71%; height:max(3px,.4cqi); width:40%; background:#14171a; border-radius:2px; transform-origin:0 50%; animation:wipe 1.4s ease-in-out infinite; box-shadow:0 1px 0 rgba(255,255,255,.08)}

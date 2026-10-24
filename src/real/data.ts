@@ -27,6 +27,8 @@ export type RouteEvent =
 
 export interface RouteData {
   attribution: string;
+  /** Latitude and longitude of the local x/y origin. */
+  origin: [number, number];
   start: string;
   goal: string;
   length: number;

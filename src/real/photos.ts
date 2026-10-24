@@ -1,6 +1,7 @@
 /**
- * Street-photo view: real Mapillary photos along the route (fetched by scripts/fetch-street-photos.py), with the
- * simulated pedestrians, cyclists, oncoming cars and the signal you must obey drawn over them.
+ * Street-photo view: real photos along the route, either Mapillary's (fetched by scripts/fetch-street-photos.py) or
+ * Google Street View's (requested live, see gsv.ts), with the simulated pedestrians, cyclists, oncoming cars and the
+ * signal you must obey drawn over them.
  */
 import type { RouteSim } from './sim';
 
@@ -12,6 +13,18 @@ export interface Frame {
   turn: number;
   date: string;
   by: string;
+  /** Compass heading to request, for sources that can point the camera (Google Street View). */
+  heading?: number;
+}
+
+/** Where photos come from. `frames` may keep growing while the view is in use. */
+export interface PhotoSource {
+  step: number;
+  frames: Frame[];
+  url(f: Frame, look: -1 | 0 | 1): string;
+  credit(f: Frame): string;
+  /** True when looking left or right swaps in a real photo facing that way. */
+  canLook: boolean;
 }
 
 export interface StreetData {
@@ -34,20 +47,29 @@ export async function loadStreet(): Promise<StreetData | null> {
 /** Where the horizon sits in the view, as a fraction of its height (above the dashboard). */
 const HORIZON = 0.4;
 
-const photoUrl = (id: string) => new URL(`street/${id}.jpg`, document.baseURI).href;
+/** Mapillary photos saved by scripts/fetch-street-photos.py. */
+export function mapillarySource(d: StreetData): PhotoSource {
+  return {
+    step: d.step,
+    frames: d.frames,
+    url: (f) => new URL(`street/${f.id}.jpg`, document.baseURI).href,
+    credit: (f) => `Photo ${f.date} by ${f.by} · Mapillary, CC-BY-SA 4.0`,
+    canLook: false,
+  };
+}
 
 export class PhotoView {
-  private readonly root: HTMLDivElement;
+  readonly root: HTMLDivElement;
   private readonly imgs: [HTMLImageElement, HTMLImageElement];
   private readonly overlay: HTMLCanvasElement;
   private readonly g: CanvasRenderingContext2D;
   private readonly credit: HTMLDivElement;
   private readonly look: HTMLDivElement;
   private front = 0;
-  private shown = -1;
+  private shown = '';
   private readonly cache = new Map<string, HTMLImageElement>();
 
-  constructor(stage: HTMLElement, private readonly data: StreetData) {
+  constructor(stage: HTMLElement, private readonly data: PhotoSource) {
     this.root = document.createElement('div');
     this.root.className = 'street';
     this.imgs = [document.createElement('img'), document.createElement('img')];
@@ -86,11 +108,13 @@ export class PhotoView {
 
   private preload(i: number): void {
     const f = this.data.frames[i];
-    if (!f || this.cache.has(f.id)) return;
+    if (!f) return;
+    const url = this.data.url(f, 0);
+    if (this.cache.has(url)) return;
     const im = new Image();
     im.decoding = 'async';
-    im.src = photoUrl(f.id);
-    this.cache.set(f.id, im);
+    im.src = url;
+    this.cache.set(url, im);
     if (this.cache.size > 40) this.cache.delete(this.cache.keys().next().value as string);
   }
 
@@ -126,10 +150,13 @@ export class PhotoView {
   update(sim: RouteSim): void {
     if (this.root.hidden) return;
     const P = sim.player;
+    if (!this.data.frames.length) return;
     const i = this.frameAt(P.s);
     const f = this.data.frames[i];
-    if (i !== this.shown) {
-      this.shown = i;
+    const look: -1 | 0 | 1 = this.data.canLook ? (sim.input.look ? -1 : sim.input.lookRight ? 1 : 0) : 0;
+    const url = this.data.url(f, look);
+    if (url !== this.shown) {
+      this.shown = url;
       const back = this.imgs[1 - this.front];
       back.onload = () => {
         this.place(back, f, 1);
@@ -137,20 +164,19 @@ export class PhotoView {
         this.imgs[this.front].style.opacity = '0';
         this.front = 1 - this.front;
       };
-      back.src = photoUrl(f.id);
+      back.src = url;
       for (let k = 1; k <= 5; k++) this.preload(i + k);
-      this.credit.textContent = `Photo ${f.date} by ${f.by} · Mapillary, CC-BY-SA 4.0`;
+      this.credit.textContent = this.data.credit(f);
     }
     // Ease in towards the next photo so moving forward feels continuous.
-    const t = Math.max(0, Math.min(1, (P.s - f.s) / this.data.step));
-    const cur = this.imgs[this.front];
-    this.place(cur, this.data.frames[this.shown], 1 + 0.12 * t);
-    this.drawOverlay(sim);
+    const t = look ? 0 : Math.max(0, Math.min(1, (P.s - f.s) / this.data.step));
+    this.place(this.imgs[this.front], f, 1 + 0.12 * t);
+    this.drawOverlay(sim, look !== 0);
     this.drawLook(sim);
   }
 
   /** Simulated people, bikes and oncoming cars, in rough perspective over the photo. */
-  private drawOverlay(sim: RouteSim): void {
+  private drawOverlay(sim: RouteSim, sideways: boolean): void {
     const c = this.overlay;
     const W = this.root.clientWidth;
     const H = this.root.clientHeight;
@@ -215,7 +241,8 @@ export class PhotoView {
         g.fillRect(q.x + w * 0.26, q.y - h * 0.42, w * 0.16, h * 0.1);
       } });
     }
-    items.sort((a, b) => b.d - a.d).forEach((it) => it.draw());
+    // Looking sideways in a real photo: the figures are placed for the view ahead, so leave them out.
+    if (!sideways) items.sort((a, b) => b.d - a.d).forEach((it) => it.draw());
 
     // The signal you must obey, whatever the photo happens to show.
     const sg = sim.signals.find((x) => x.s - P.s > -2 && x.s - P.s < 120);

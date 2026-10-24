@@ -1,7 +1,8 @@
 import '../style.css';
 import { CarAudio } from '../audio';
 import { loadRoute } from './data';
-import { loadStreet, PhotoView } from './photos';
+import { googleStreetView } from './gsv';
+import { loadStreet, mapillarySource, PhotoView } from './photos';
 import { RouteSim } from './sim';
 import { RouteUI } from './ui';
 import { RealWorld } from './world';
@@ -38,7 +39,7 @@ async function boot(): Promise<void> {
   }
   world.setRoute(route);
   const street = await loadStreet();
-  const photos = street ? new PhotoView(stage, street) : null;
+  const photos = street ? new PhotoView(stage, mapillarySource(street)) : null;
 
   const ui = new RouteUI();
   const sim = new RouteSim(route, ui);
@@ -53,23 +54,41 @@ async function boot(): Promise<void> {
 
   world.resize();
   new ResizeObserver(() => world.resize()).observe(stage);
-  // Street photos by default when they've been fetched; the 3D scene is only built if you switch to it.
+  // Three views: Google Street View (needs VITE_GOOGLE_MAPS_KEY with the Street View Static API), Mapillary photos,
+  // or our own 3D scene. The photo views keep the car on the route; only our own 3D scene allows free steering.
+  const key = (import.meta.env.VITE_GOOGLE_MAPS_KEY as string | undefined) ?? '';
+  const progress = document.createElement('div');
+  progress.className = 'g3d-status';
+  const gsvSource = key ? googleStreetView(route, key, sim.startAt, (done, total) => {
+    progress.textContent = `Finding Google Street View along the route… ${Math.round((done / total) * 100)}%`;
+    progress.hidden = done >= total;
+  }) : null;
+  const google = gsvSource ? new PhotoView(stage, gsvSource) : null;
+  if (google) google.root.append(progress);
+  type View = 'google' | 'photo' | '3d';
+  const btn = (v: View) => document.getElementById(`view-${v === 'google' ? 'google' : v === 'photo' ? 'photo' : '3d'}`) as HTMLButtonElement;
   let built = false;
-  const setView = (photo: boolean) => {
-    sim.photo = photo && !!photos;
-    if (photos) photos.visible = sim.photo;
-    if (!sim.photo && !built) { world.build(); built = true; }
+  let view: View = '3d';
+  const setView = (v: View) => {
+    if (v === 'google' && !google) v = photos ? 'photo' : '3d';
+    if (v === 'photo' && !photos) v = '3d';
+    view = v;
+    sim.photo = v !== '3d';
+    if (photos) photos.visible = v === 'photo';
+    if (google) google.visible = v === 'google';
+    if (v === '3d' && !built) { world.build(); built = true; }
     document.body.classList.toggle('photo-mode', sim.photo);
-    document.getElementById('photo-note')!.hidden = !sim.photo;
-    document.getElementById('view-photo')!.setAttribute('aria-pressed', String(sim.photo));
-    document.getElementById('view-3d')!.setAttribute('aria-pressed', String(!sim.photo));
+    document.getElementById('photo-note')!.hidden = v !== 'photo';
+    document.getElementById('google-note')!.hidden = v !== 'google';
+    for (const x of ['google', 'photo', '3d'] as View[]) btn(x).setAttribute('aria-pressed', String(x === v));
     ui.renderRules();
     ui.restart();
   };
-  document.getElementById('view-photo')!.addEventListener('click', () => setView(true));
-  document.getElementById('view-3d')!.addEventListener('click', () => setView(false));
-  if (!photos) (document.getElementById('view-photo') as HTMLButtonElement).disabled = true;
-  setView(new URLSearchParams(location.search).get('view') !== '3d');
+  for (const x of ['google', 'photo', '3d'] as View[]) btn(x).addEventListener('click', () => setView(x));
+  if (!google) { btn('google').disabled = true; btn('google').title = 'Add VITE_GOOGLE_MAPS_KEY (Street View Static API) to .env.local'; }
+  if (!photos) { btn('photo').disabled = true; btn('photo').title = 'Run scripts/fetch-street-photos.py'; }
+  const asked = new URLSearchParams(location.search).get('view') as View | null;
+  setView(asked ?? (google ? 'google' : 'photo'));
   // Let traffic settle in before the first frame.
   for (let i = 0; i < 200; i++) sim.step(0.05);
 
@@ -79,7 +98,8 @@ async function boot(): Promise<void> {
     last = t;
     if (!ui.paused) sim.step(dt);
     world.sync(sim, ui.paused ? 0 : dt);
-    if (sim.photo) photos!.update(sim);
+    if (view === 'photo') photos!.update(sim);
+    else if (view === 'google') google!.update(sim);
     else {
       world.updateSignals(sim);
       world.render();

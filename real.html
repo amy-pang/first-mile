@@ -81,6 +81,7 @@
           </div>
         </div>
       </div>
+      <p class="caption" id="google-note" hidden>Street View: Google's street-level photos along this exact route, requested live as you drive (it needs an internet connection and nothing is stored). Holding Q or E shows the real view to that side. The lights and cars in the photos are frozen; the outlined people, cyclists and oncoming cars, and the traffic light top right, are the simulated ones you must react to. The car follows the route.</p>
       <p class="caption" id="photo-note">In Street photos view the windshield shows real Mapillary photos taken along this exact route, so the lights and cars in them are frozen from when each photo was taken. The traffic light shown top right, and the outlined people, cyclists and oncoming cars, are the simulated ones you must react to. The car follows the route; you control speed, signals (Z/X) and checks (Q/E).</p>
       <p class="caption">Streets, lane counts, speed limits, one-way rules, traffic signal and stop sign locations, crosswalks, bike lanes, the railroad crossing and building footprints come from OpenStreetMap. Signal timing, traffic, pedestrians and cyclists are simulated. <span id="attribution"></span></p>
     </div>
@@ -90,7 +91,8 @@
         <div class="row">
           <div class="eyebrow" id="m-h">Navigation</div>
           <div class="seg" role="group" aria-label="View">
-            <button type="button" id="view-photo" aria-pressed="true">Street photos</button>
+            <button type="button" id="view-google" aria-pressed="false">Street View</button>
+            <button type="button" id="view-photo" aria-pressed="true">Photos</button>
             <button type="button" id="view-3d" aria-pressed="false">3D</button>
           </div>
         </div>
