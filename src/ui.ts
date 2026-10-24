@@ -99,7 +99,7 @@ export class UI implements SimHooks {
     this.renderMap();
     el('result').hidden = true;
     if (this.paused) this.setPause(false);
-    this.setPrompt('Hold Gas or ↑ to drive', 'Steer with ← →. Hold Q to look left, E to signal');
+    this.setPrompt('Hold Gas or ↑ to drive', 'Your lane ends ahead: Z signals left, hold Q to check your blind spot, then merge. E signals right.');
     el('prompt').hidden = false;
   }
 
@@ -155,8 +155,9 @@ export class UI implements SimHooks {
     }
   }
 
-  signalChanged(on: boolean): void {
-    el('b-signal').setAttribute('aria-pressed', on ? 'true' : 'false');
+  signalChanged(left: boolean, right: boolean): void {
+    el('b-signal-l').setAttribute('aria-pressed', left ? 'true' : 'false');
+    el('b-signal').setAttribute('aria-pressed', right ? 'true' : 'false');
   }
 
   lightsChanged(on: boolean): void {
@@ -309,7 +310,9 @@ export class UI implements SimHooks {
     el('needle').setAttribute('transform', `rotate(${(-120 + (Math.min(60, P.v * MPHF) / 60) * 240).toFixed(1)} 100 84)`);
     el('zone').textContent = zoneName;
     el('zone-sub').textContent = zone === 'rotary' ? 'Advisory 20 mph' : 'Limit 25 mph';
-    el('ind-r').setAttribute('fill', sim.signal && now % 800 < 440 ? '#3BE07A' : '#2A3B30');
+    const blink = now % 800 < 440;
+    el('ind-r').setAttribute('fill', sim.signal && blink ? '#3BE07A' : '#2A3B30');
+    el('ind-l').setAttribute('fill', sim.signalLeft && blink ? '#3BE07A' : '#2A3B30');
     el('look-tag').classList.toggle('on', sim.input.look);
 
     const t = sim.tripNow();
@@ -420,7 +423,7 @@ export class UI implements SimHooks {
       this.setPrompt('Paused', 'Press P or Resume to keep driving');
       el('prompt').hidden = false;
     } else if (this.sim.state === 'ready') {
-      this.setPrompt('Hold Gas or ↑ to drive', 'Steer with ← →. Hold Q to look left, E to signal');
+      this.setPrompt('Hold Gas or ↑ to drive', 'Your lane ends ahead: Z signals left, hold Q to check your blind spot, then merge. E signals right.');
     } else {
       el('prompt').hidden = true;
     }
@@ -457,6 +460,7 @@ export class UI implements SimHooks {
     hold(el('b-left'), 'left');
     hold(el('b-right'), 'right');
     el('b-signal').addEventListener('click', () => this.sim.setSignal(!this.sim.signal));
+    el('b-signal-l').addEventListener('click', () => this.sim.setSignalLeft(!this.sim.signalLeft));
     el('b-lights').addEventListener('click', () => this.sim.setHeadlights(!this.sim.headlights));
     el('b-restart').addEventListener('click', () => this.restart());
     el('b-pause').addEventListener('click', () => this.setPause(!this.paused));
@@ -479,6 +483,7 @@ export class UI implements SimHooks {
         if (KEYS[k].includes(e.key)) { input[k] = true; e.preventDefault(); return; }
       }
       if (SIG.includes(e.key)) { if (!e.repeat) this.sim.setSignal(!this.sim.signal); e.preventDefault(); }
+      else if ((e.key === 'z' || e.key === 'Z') && !e.repeat) this.sim.setSignalLeft(!this.sim.signalLeft);
       else if (e.key === 'r' || e.key === 'R') this.restart();
       else if ((e.key === 'p' || e.key === 'P') && !e.repeat) this.setPause(!this.paused);
       else if ((e.key === 'm' || e.key === 'M') && !e.repeat) this.setSound(!this.audio.enabled);

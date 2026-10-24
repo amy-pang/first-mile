@@ -176,9 +176,9 @@ h1 .plate{display:inline-block; margin-left:.06em; background:var(--guide); colo
 .score b{font-family:var(--mono); font-size:26px; font-variant-numeric:tabular-nums}
 .zone{font-size:13px; color:var(--muted); text-align:right}
 .zone b{display:block; color:var(--fg); font-family:var(--display); font-weight:800; font-size:15px}
-.pad{display:grid; grid-template-columns:repeat(6,1fr); gap:8px}
-.pad .btn{grid-column:span 3; min-width:0; padding-inline:4px}
-.pad .btn.look, .pad .btn.signal, .pad .btn.lights{grid-column:span 2; font-size:14px; white-space:nowrap}
+.pad{display:grid; grid-template-columns:1fr 1fr; gap:8px}
+.pad .btn{min-width:0; padding-inline:4px}
+.pad .btn.look, .pad .btn.signal, .pad .btn.lights{font-size:15px; white-space:nowrap}
 .btn{font:inherit; font-family:var(--display); font-weight:800; font-size:16px; height:58px; border-radius:10px; border:2px solid transparent; cursor:pointer; user-select:none; -webkit-user-select:none; touch-action:none; -webkit-touch-callout:none; transition:transform .06s, filter .1s}
 .btn:focus-visible{outline:3px solid var(--amber); outline-offset:2px}
 .btn.brake{background:var(--yield); color:var(--sign-white)}

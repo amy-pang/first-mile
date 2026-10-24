@@ -31,6 +31,13 @@ export const DY = R_OUT + 4; // yield line distance from centre
 export const DCW = R_OUT + 8; // crosswalk distance from centre
 export const DS = 190; // where approach paths start
 export const DEND = 215; // where exit paths end
+/**
+ * Each approach has a second inbound lane on the right that ends before the rotary, so drivers practise a merge:
+ * full width beyond LANE_DROP, tapering to nothing at LANE_END.
+ */
+export const CURB_W = 4;
+export const LANE_DROP = 150;
+export const LANE_END = 125;
 
 export const DEG = Math.PI / 180;
 export const TAU = Math.PI * 2;

@@ -197,6 +197,28 @@ export const SIGNS = {
     },
   }),
 
+  /** Lane ends (MUTCD W4-2): the right-hand lane line bends in to join the left one. */
+  laneEnds: (): SignSpec => ({
+    w: 1.5,
+    h: 1.5,
+    shape: diamondShape,
+    draw(g, W, H) {
+      yellowDiamond(g, W, H);
+      g.strokeStyle = INK;
+      g.lineWidth = W * 0.07;
+      g.lineCap = 'butt';
+      g.beginPath();
+      g.moveTo(W * 0.4, H * 0.78);
+      g.lineTo(W * 0.4, H * 0.22);
+      g.stroke();
+      g.beginPath();
+      g.moveTo(W * 0.62, H * 0.78);
+      g.lineTo(W * 0.62, H * 0.56);
+      g.bezierCurveTo(W * 0.62, H * 0.44, W * 0.48, H * 0.4, W * 0.47, H * 0.3);
+      g.stroke();
+    },
+  }),
+
   pedWarn: (): SignSpec => ({
     w: 1.5,
     h: 1.5,
@@ -397,7 +419,7 @@ export const SIGNS = {
   }),
 };
 
-export type SignKey = 'speed' | 'diagram' | 'warn' | 'ped' | 'law' | 'yield' | 'teeth' | 'oneway' | 'shields';
+export type SignKey = 'speed' | 'lanes' | 'diagram' | 'warn' | 'ped' | 'law' | 'yield' | 'teeth' | 'oneway' | 'shields';
 
 export interface SignInfo {
   spec: () => SignSpec;
@@ -419,6 +441,13 @@ export const SIGN_INFO: Record<SignKey, SignInfo> = {
     kind: 'Regulatory · white',
     meaning: 'The legal maximum speed on this road.',
     rule: "Boston's default limit is 25 mph unless a sign says otherwise. Going over it can get you a ticket.",
+  },
+  lanes: {
+    spec: () => SIGNS.laneEnds(),
+    name: 'Right lane ends',
+    kind: 'Warning · yellow',
+    meaning: 'The lane you are in is about to end. The lane to your left keeps going.',
+    rule: 'Merge left early: signal left (Z), check your left mirror, then hold Q to look over your shoulder for a car in your blind spot. Move over only into a safe gap.',
   },
   diagram: {
     spec: () => SIGNS.diagram(0),
@@ -478,7 +507,7 @@ export const SIGN_INFO: Record<SignKey, SignInfo> = {
   },
 };
 
-export const GUIDE_ORDER: SignKey[] = ['speed', 'diagram', 'warn', 'ped', 'law', 'yield', 'teeth', 'oneway', 'shields'];
+export const GUIDE_ORDER: SignKey[] = ['speed', 'lanes', 'diagram', 'warn', 'ped', 'law', 'yield', 'teeth', 'oneway', 'shields'];
 
 export function signCanvas(spec: SignSpec, ppm: number): HTMLCanvasElement {
   const c = document.createElement('canvas');

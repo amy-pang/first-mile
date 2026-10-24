@@ -1,9 +1,9 @@
 /** Traffic, pedestrians, the player's car and the rule checks. No DOM or three.js in here. */
 import {
-  AI_COLORS, DCW, DEG, DEND, DS, DY, LANE, MPHF, ORD, PED_COLORS, R_IN, R_OUT, RC, ROADS, RW, TAU,
+  AI_COLORS, CURB_W, DCW, DEG, DEND, DS, DY, LANE, LANE_END, MPHF, ORD, PED_COLORS, R_IN, R_OUT, RC, ROADS, RW, TAU,
   TIME_SCALE, type Pose, type Pt,
 } from './constants';
-import { add, dist, N, pickOne, rand, roadPt, U } from './math';
+import { add, curbCentre, dist, inboundEdge, N, pickOne, rand, roadPt, U } from './math';
 import { getPath, poseAt, type Path } from './path';
 import type { SignKey } from './signs';
 import { conditionsFor, fmtT, TRAFFIC_LABEL, type Traffic, type Trip, type Weather } from './trip';
@@ -58,7 +58,7 @@ export interface SimHooks {
   coach(kind: CoachKind, title: string, body: string, quiet?: boolean): void;
   sign(key: SignEventKey): void;
   exitsChanged(): void;
-  signalChanged(on: boolean): void;
+  signalChanged(left: boolean, right: boolean): void;
   lightsChanged(on: boolean): void;
   scoreChanged(score: number): void;
   driveStarted(): void;
@@ -80,14 +80,14 @@ export interface RouteOptions {
  * lose points for every second they slip, scaled by how far off they are; one-off rules lose a fixed amount.
  * Each category bottoms out at zero, so one bad habit can't wipe out the whole score.
  */
-export type Category = 'speed' | 'following' | 'lane' | 'yield' | 'signals' | 'flow';
+export type Category = 'speed' | 'following' | 'lane' | 'yield' | 'signals' | 'blind';
 export const CATEGORIES: readonly { key: Category; label: string; weight: number; what: string }[] = [
   { key: 'yield', label: 'Right of way', weight: 30, what: 'Yielding to rotary traffic, pedestrians and emergency vehicles' },
-  { key: 'speed', label: 'Speed control', weight: 20, what: 'Within 25 mph on the roads and near the 20 mph advisory in the rotary' },
+  { key: 'speed', label: 'Speed control', weight: 20, what: 'Within 25 mph on the roads, near the 20 mph advisory in the rotary, and no stopping inside it' },
   { key: 'following', label: 'Following distance', weight: 15, what: 'At least a two-second gap to the car ahead (three in rain)' },
   { key: 'lane', label: 'Lane position and steering', weight: 15, what: 'Holding your lane, staying on the pavement, steering smoothly' },
-  { key: 'signals', label: 'Signals and checks', weight: 12, what: 'Looking left before entering, signaling your exit, headlights in rain' },
-  { key: 'flow', label: 'Traffic flow', weight: 8, what: 'Keeping moving with traffic and making way for emergency vehicles' },
+  { key: 'signals', label: 'Signals and checks', weight: 10, what: 'Looking left before entering the rotary, signaling your exit, headlights in rain' },
+  { key: 'blind', label: 'Checking blind spots', weight: 10, what: 'Before changing lanes: signal, check your mirror and over your shoulder, and merge only into a safe gap' },
 ];
 /** Points lost per second at full severity, for the continuously measured categories. */
 const RATE = { speed: 2, following: 1.5, lane: 1.5 } as const;
@@ -121,6 +121,9 @@ export function onPavement(p: Pt): boolean {
     const lat = Math.abs(p.x * n.x + p.y * n.y);
     if (along > R_IN && along < DEND + 40 && lat <= RW + 0.6) return true;
     if (along > R_IN && along < DY + 4 && lat <= RW + 5) return true;
+    // The extra inbound lane on the right, until its taper runs out.
+    const side = p.x * n.x + p.y * n.y;
+    if (along > LANE_END && along < DEND + 40 && side < 0 && side >= inboundEdge(along) - 0.6) return true;
   }
   return false;
 }
@@ -131,7 +134,7 @@ export class Simulation {
   player!: Car;
   state: RunState = 'ready';
   /** Points lost so far in each category. */
-  lost: Record<Category, number> = { speed: 0, following: 0, lane: 0, yield: 0, signals: 0, flow: 0 };
+  lost: Record<Category, number> = { speed: 0, following: 0, lane: 0, yield: 0, signals: 0, blind: 0 };
   /** A mistake that fails the run on its own, whatever the score (as on a road test). */
   critical: string | null = null;
   flags: Record<string, boolean> = {};
@@ -144,7 +147,9 @@ export class Simulation {
   passedCount = 0;
   topMph = 0;
   simTime = 0;
+  /** Right and left turn signals; at most one is on. */
   signal = false;
+  signalLeft = false;
   headlights = false;
   weather: Weather = 'clear';
   /** Whether this run includes an ambulance, and whether it has appeared yet. */
@@ -175,6 +180,10 @@ export class Simulation {
   /** Seconds each habit has been slipping, so a coach note appears only when it lasts. */
   private slipT: Record<string, number> = {};
   private shownScore = 100;
+  /** Lane-change practice: whether you've moved out of the ending lane, and the car sent to sit in your blind spot. */
+  private merged = false;
+  private blindCarSent = false;
+  private lastSide = 0;
   private emsPulled = false;
   private signEvents: { key: SignEventKey; s: number }[] = [];
 
@@ -205,7 +214,14 @@ export class Simulation {
 
   setSignal(on: boolean): void {
     this.signal = on;
-    this.hooks.signalChanged(on);
+    if (on) this.signalLeft = false;
+    this.hooks.signalChanged(this.signalLeft, this.signal);
+  }
+
+  setSignalLeft(on: boolean): void {
+    this.signalLeft = on;
+    if (on) this.signal = false;
+    this.hooks.signalChanged(this.signalLeft, this.signal);
   }
 
   setHeadlights(on: boolean): void {
@@ -242,13 +258,16 @@ export class Simulation {
     this.tripSec = 0;
 
     const path = getPath(opts.start, opts.dest);
+    // You start in the right-hand lane, which ends before the rotary, so every run includes a merge.
+    const start = { ...roadPt(ROADS[opts.start].phi, DS - 8, -(RW + CURB_W / 2)), h: poseAt(path, 8).h };
     this.player = {
       id: 0, isPlayer: true, path, s: 8, v: 0, vmax: 0, ringV: 0, color: '#E0A50C', clearT: 0, cleared: true, waiting: false,
-      stuck: 0, blockedBy: null, braking: false, onRing: false, pose: poseAt(path, 8),
+      stuck: 0, blockedBy: null, braking: false, onRing: false, pose: start,
     };
+    this.lastSide = this.sideOffset();
     this.cars.push(this.player);
     this.state = 'ready';
-    this.lost = { speed: 0, following: 0, lane: 0, yield: 0, signals: 0, flow: 0 };
+    this.lost = { speed: 0, following: 0, lane: 0, yield: 0, signals: 0, blind: 0 };
     this.critical = null;
     this.slipT = {};
     this.shownScore = 100;
@@ -261,17 +280,19 @@ export class Simulation {
     this.emsWaited = this.lightsNoted = this.emsPulled = false;
     this.marks = [];
     this.trail = [];
+    this.merged = this.blindCarSent = false;
     this.topMph = 0;
     this.lastLook = -99;
     this.signEvents = this.buildSignEvents();
     this.setSignal(false);
+    this.setSignalLeft(false);
     // Night drivers already have their lights on; in rain it's up to you.
     this.setHeadlights(this.trip.phase === 'night');
     this.hooks.scoreChanged(this.score);
 
     const R = ROADS[opts.dest];
     this.hooks.coach('info', `Take Route ${R.route} to ${R.town}`,
-      `It's the ${ORD[this.exitNum - 1]} exit. Read the signs on the way in, look left and yield at the rotary, stay near 20 mph inside, and signal right before you leave.`);
+      `It's the ${ORD[this.exitNum - 1]} exit. Your lane ends ahead, so merge left first: signal (Z), check your mirror and blind spot (hold Q), then move over. Look left and yield at the rotary, stay near 20 mph inside, and signal right before you leave.`);
     const tips: Record<Traffic, string> = {
       rush: 'Expect a steady stream of cars in the rotary and more people at crosswalks. Gaps are shorter, so be patient at the yield line.',
       moderate: 'Traffic is steady but gaps come regularly. Still look left every time before you enter.',
@@ -292,6 +313,8 @@ export class Simulation {
     for (const c of this.cars) if (!c.isPlayer) this.placeCar(c);
     const P = this.player;
     if (this.emsPlanned && !this.emsSpawned && this.state === 'driving' && P.s > (this.emsFrom === 'left' ? P.path.sYield - 70 : 25)) this.spawnEms();
+    // An ambulance coming up behind you already fills the blind spot, so skip the extra car then.
+    if (!this.blindCarSent && this.state === 'driving' && P.s > 12 && !(this.emsPlanned && this.emsFrom === 'behind')) this.spawnBlindCar();
     this.spawnT -= dt;
     if (this.spawnT <= 0) {
       this.spawnAI();
@@ -496,6 +519,7 @@ export class Simulation {
     const pt = this.player.path;
     const ev: { key: SignEventKey; s: number }[] = [
       { key: 'speed', s: DS - 172 - 30 },
+      { key: 'lanes', s: DS - 160 - 28 },
       { key: 'diagram', s: DS - 140 - 45 },
       { key: 'warn', s: DS - 105 - 35 },
       { key: 'ped', s: DS - 70 - 35 },
@@ -543,17 +567,19 @@ export class Simulation {
 
     if (this.weather === 'rain' && !this.headlights) {
       this.darkT += dt;
-      if (this.darkT > 5) this.violate('lights', 'signals', 3, 'Wipers on, headlights on', 'Massachusetts law requires headlights whenever your wipers are running. Press L to turn them on.');
+      if (this.darkT > 5) this.violate('lights', 'signals', 2, 'Wipers on, headlights on', 'Massachusetts law requires headlights whenever your wipers are running. Press L to turn them on.');
     }
     this.checkEms(P, dt, f1);
 
+    this.checkMerge(P);
+    if (this.merged && this.signalLeft && this.sideOffset() > -RW + 1.2) this.setSignalLeft(false);
     this.assess(P, dt, paved);
 
     if (crossed(f0, f1, pt.sCW - 2) && this.peds.some((p) => p.road === this.startIdx && p.onRoad)) {
       this.violate('ped', 'yield', 15, 'You drove through an occupied crosswalk', 'Massachusetts law requires drivers to yield to people in a crosswalk. The in-street "State Law" sign is your reminder. Stop before the white bars.', true);
     }
     if (crossed(f0, f1, pt.sYield)) {
-      if (this.simTime - this.lastLook > 8) this.violate('look', 'signals', 4, 'Check left before you enter', 'Traffic in a rotary comes from your left. Hold Look left as you reach the yield line so you can judge the gap.');
+      if (this.simTime - this.lastLook > 8) this.violate('look', 'signals', 3, 'Check left before you enter', 'Traffic in a rotary comes from your left. Hold Look left as you reach the yield line so you can judge the gap.');
       const e = this.ems();
       if (e && e.path.inIdx !== pt.inIdx && this.approaching(e, pt.M, 4, 0)) {
         this.violate('ems', 'yield', 12, "Don't pull out in front of an ambulance", 'Emergency vehicles with lights and siren have the right of way. Wait at the yield line until it has passed, then enter.', true);
@@ -574,7 +600,7 @@ export class Simulation {
     if (P.onRing && P.v < 0.4) {
       if (this.leadGap(P).gap > 10) {
         this.stopT += dt;
-        if (this.stopT > 1.5) this.violate('stop', 'flow', 5, "Don't stop inside the rotary", this.ems()
+        if (this.stopT > 1.5) this.violate('stop', 'speed', 5, "Don't stop inside the rotary", this.ems()
           ? 'Even with a siren behind you, keep moving in the rotary. Stopping in the circle traps the ambulance. Exit first, then pull to the right.'
           : 'Once you are in, keep moving with traffic unless something blocks you. Stopping in the circle invites rear-end crashes.');
       }
@@ -582,7 +608,7 @@ export class Simulation {
     if (crossed(s0, s1, pt.sExit)) this.sigAtExit = this.signal;
     if (crossed(s0, s1, pt.sOff)) {
       if (this.sigAtExit) this.hooks.coach('good', 'Exit signaled', 'Your right blinker told drivers waiting at this entry that you were leaving, so they could go sooner.');
-      else this.violate('signal', 'signals', 5, 'No exit signal', 'Turn on your right signal after you pass the exit before yours, so waiting drivers know you are leaving.');
+      else this.violate('signal', 'signals', 4, 'No exit signal', 'Turn on your right signal after you pass the exit before yours, so waiting drivers know you are leaving.');
     }
     if (crossed(s0, s1, pt.sOff + 6) && this.signal) this.setSignal(false);
     this.checkPosition(P, dt, paved);
@@ -607,7 +633,7 @@ export class Simulation {
     }
     if (this.emsPulled) return;
     this.pullT += dt;
-    if (this.pullT > 4) this.violate('ems-pull', 'flow', 4, 'Pull over and let it pass', 'With an ambulance behind you, slow down and keep to the right so it can get by. In a rotary, wait until you have exited.');
+    if (this.pullT > 4) this.violate('ems-pull', 'yield', 4, 'Pull over and let it pass', 'With an ambulance behind you, slow down and keep to the right so it can get by. In a rotary, wait until you have exited.');
   }
 
   /** Move the player with a simple bicycle model: the arrow keys turn the front wheels, which self-centre when released. */
@@ -766,7 +792,12 @@ export class Simulation {
     const pt = P.path;
     const curve = P.s > pt.sYield - 2 && P.s < pt.sOff + 2;
     const tol = curve ? 1.6 : 0.7;
-    const dev = dist(P.pose, poseAt(pt, P.s));
+    let dev = dist(P.pose, poseAt(pt, P.s));
+    const along = this.alongStart();
+    if (P.s < pt.sYield && along > LANE_END) {
+      const o = this.sideOffset();
+      dev = Math.min(Math.abs(o + LANE), Math.abs(o - curbCentre(along)));
+    }
     const drift = paved ? clamp01((dev - tol) / 1.5) : 1;
     const latAcc = (P.v * P.v * Math.abs(Math.tan(this.steer))) / WHEELBASE;
     const swerve = clamp01((latAcc - 4.5) / 3);
@@ -779,8 +810,77 @@ export class Simulation {
     }
   }
 
+  /** How far you are from the rotary along your own approach road. */
+  private alongStart(): number {
+    const u = U(ROADS[this.startIdx].phi);
+    return this.player.pose.x * u.x + this.player.pose.y * u.y;
+  }
+
+  /** Your sideways offset from your approach road's centre line: −2 is the main lane, −6 the lane that ends. */
+  private sideOffset(): number {
+    const n = N(ROADS[this.startIdx].phi);
+    return this.player.pose.x * n.x + this.player.pose.y * n.y;
+  }
+
+  /**
+   * A car in the continuing lane, a little behind you and a little faster, so it is passing through your
+   * blind spot around the time your lane starts to end.
+   */
+  private spawnBlindCar(): void {
+    this.blindCarSent = true;
+    const P = this.player;
+    const st = this.startIdx;
+    let o: number;
+    do o = Math.floor(Math.random() * 4); while (o === st);
+    const path = getPath(st, o);
+    const s = Math.max(0, P.s - rand(10, 18));
+    this.cars = this.cars.filter((c) => c.isPlayer || !(c.path.inIdx === st && c.s < P.s + 6));
+    this.cars.push({
+      id: this.nextId++, isPlayer: false, path, s, v: Math.max(8, P.v + 3.5), vmax: 11.8, ringV: rand(6.8, 8.6),
+      color: pickOne(AI_COLORS), clearT: 0, cleared: false, waiting: false, stuck: 0, blockedBy: null, braking: false,
+      onRing: false, pose: poseAt(path, s),
+    });
+  }
+
+  /** The merge out of the ending lane: signal, mirror and shoulder check, and a gap in the lane you move into. */
+  private checkMerge(P: Car): void {
+    if (this.merged || P.s > P.path.sYield) return;
+    const o = this.sideOffset();
+    const was = this.lastSide;
+    this.lastSide = o;
+    const along = this.alongStart();
+    if (was < -RW && o >= -RW) {
+      this.merged = true;
+      let clean = true;
+      if (!this.signalLeft) {
+        clean = false;
+        this.violate('lc-signal', 'blind', 3, 'Signal before you change lanes', 'Turn on your left signal (Z) a few seconds before you move over, so drivers behind you know what you are about to do.');
+      }
+      if (this.simTime - this.lastLook > 3) {
+        clean = false;
+        this.violate('lc-look', 'blind', 4, 'Check your blind spot', "Mirrors miss the area just behind your left shoulder. Before you move left, check your left mirror, then hold Q to glance over your shoulder.");
+      }
+      const f = U(P.pose.h);
+      const cut = this.cars.find((c) => {
+        if (c.isPlayer || c.path.inIdx !== this.startIdx || c.s > c.path.sYield) return false;
+        const rel = (c.pose.x - P.pose.x) * f.x + (c.pose.y - P.pose.y) * f.y;
+        return rel > -10 && rel < 4;
+      });
+      if (cut) {
+        clean = false;
+        this.violate('lc-unsafe', 'blind', 6, 'Unsafe lane change', 'A car was right beside you in the lane you moved into. Let it pass, then merge into the gap behind it.', true);
+      }
+      if (clean) this.hooks.coach('good', 'Clean lane change', 'Signal, mirror, shoulder check, then a smooth move into a safe gap. That is exactly how to change lanes.');
+    } else if (o < -RW - 0.5 && along < LANE_END + 1) {
+      this.merged = true;
+      this.violate('lc-missed', 'blind', 6, 'Merge before your lane ends', 'Your lane ran out. Signal and merge early, while there is still room, instead of waiting for the end of the taper.');
+    }
+  }
+
   /** Bumper-to-bumper gap to a car travelling the same way ahead on your line; Infinity if none is close. */
   private followGap(P: Car): number {
+    // Nobody drives ahead of you in the ending lane.
+    if (P.s < P.path.sYield && this.sideOffset() < -RW) return Infinity;
     const range = Math.max(12, P.v * 3.3) + 5;
     for (let ds = 3; ds <= range; ds += 1) {
       const q = poseAt(P.path, P.s + ds);

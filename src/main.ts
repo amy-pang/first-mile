@@ -60,7 +60,7 @@ async function boot(): Promise<void> {
 
   let last = performance.now();
   const frame = (t: number) => {
-    const dt = Math.min(0.05, (t - last) / 1000);
+    const dt = Math.max(0, Math.min(0.05, (t - last) / 1000));
     last = t;
     if (!ui.paused) sim.step(dt);
     world.sync(sim, ui.paused ? 0 : dt);
