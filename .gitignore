@@ -1,2 +1,6 @@
 node_modules/
 dist/
+data/osm-route/
+.DS_Store
+.env.local
+public/street/

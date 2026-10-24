@@ -196,7 +196,9 @@ export class UI implements SimHooks {
     el('r-score').textContent = `Score ${this.sim.score} / 100 · top speed ${Math.round(this.sim.topMph)} mph`;
     const cats = el('r-cats');
     cats.innerHTML = '';
-    for (const c of this.sim.breakdown()) cats.append(this.catRow(c.label, `${c.got}/${c.weight}`, c.got / c.weight));
+    for (const c of this.sim.breakdown()) {
+      cats.append(this.catRow(c.label, c.reached ? `${c.got}/${c.weight}` : `0/${c.weight}`, c.got / c.weight, c.reached ? undefined : 'Not reached: the run ended first'));
+    }
     el('r-body').textContent = r.body;
     this.renderDebrief();
     el('result').hidden = false;

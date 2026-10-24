@@ -97,6 +97,26 @@ export const PASS_SCORE = 80;
 
 const clamp01 = (x: number): number => Math.max(0, Math.min(1, x));
 
+/** Half the length and width of every car body (see World.makeCar), plus a small safety margin. */
+const CAR_HALF = { l: 2.3, w: 0.97 };
+
+/** True when two car-sized rectangles overlap (separating-axis test on both cars' axes). */
+function carsOverlap(a: Pose, b: Pose): boolean {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  for (const h of [a.h, b.h]) {
+    for (const ax of [{ x: Math.cos(h), y: Math.sin(h) }, { x: -Math.sin(h), y: Math.cos(h) }]) {
+      const reach = (p: Pose) => {
+        const cl = Math.abs(Math.cos(p.h) * ax.x + Math.sin(p.h) * ax.y);
+        const cw = Math.abs(-Math.sin(p.h) * ax.x + Math.cos(p.h) * ax.y);
+        return CAR_HALF.l * cl + CAR_HALF.w * cw;
+      };
+      if (Math.abs(dx * ax.x + dy * ax.y) > reach(a) + reach(b)) return false;
+    }
+  }
+  return true;
+}
+
 /** Where a rule was broken, for the post-run debrief map. */
 export interface Mark {
   key: string;
@@ -185,6 +205,9 @@ export class Simulation {
   private merged = false;
   private blindCarSent = false;
   private lastSide = 0;
+  /** Rule checkpoints you reached this run, and whether the run stopped before the finish. */
+  private checked = new Set<string>();
+  private endedEarly = false;
   private emsPulled = false;
   private signEvents: { key: SignEventKey; s: number }[] = [];
 
@@ -195,15 +218,37 @@ export class Simulation {
     return this.trip.leave + (this.tripSec * TIME_SCALE) / 60;
   }
 
+  /**
+   * Points a category can still earn. While you drive, every category counts in full, so the live score only falls
+   * when you slip. Once a run ends early (a crash or the wrong exit), you earn only for what you actually did:
+   * steady habits in proportion to how much of the route you drove, and each one-off rule only if you reached it.
+   */
+  private available(cat: Category): number {
+    const w = CATEGORIES.find((c) => c.key === cat)!.weight;
+    if (this.state !== 'crashed' && !this.endedEarly) return w;
+    const P = this.player;
+    const reached = (k: string) => this.checked.has(k);
+    switch (cat) {
+      case 'speed': case 'following': case 'lane':
+        return w * Math.max(0, Math.min(1, P.s / (P.path.sOff + 45)));
+      case 'yield': return (reached('crosswalk') ? 15 : 0) + (reached('yieldLine') ? 15 : 0);
+      case 'signals': return (reached('yieldLine') ? 3 : 0) + (reached('exit') ? 7 : 0);
+      case 'blind': return reached('merge') ? 10 : 0;
+    }
+  }
+
   get score(): number {
     let total = 0;
-    for (const c of CATEGORIES) total += Math.max(0, c.weight - this.lost[c.key]);
+    for (const c of CATEGORIES) total += Math.max(0, this.available(c.key) - this.lost[c.key]);
     return Math.round(total);
   }
 
-  /** Points earned in each category, for the results card. */
-  breakdown(): { key: Category; label: string; weight: number; got: number; what: string }[] {
-    return CATEGORIES.map((c) => ({ ...c, got: Math.round(Math.max(0, c.weight - this.lost[c.key])) }));
+  /** Points earned in each category, for the results card; `reached` is false for parts of the drive you never got to. */
+  breakdown(): { key: Category; label: string; weight: number; got: number; what: string; reached: boolean }[] {
+    return CATEGORIES.map((c) => {
+      const avail = this.available(c.key);
+      return { ...c, got: Math.round(Math.max(0, avail - this.lost[c.key])), reached: avail > 0 };
+    });
   }
 
   zone(): 'approach' | 'rotary' | 'leaving' {
@@ -232,6 +277,10 @@ export class Simulation {
       this.lightsNoted = true;
       this.hooks.coach('good', 'Headlights on in the rain', 'Massachusetts law: whenever your wipers are running, your headlights must be on too. It helps other drivers see you.');
     }
+  }
+
+  paved(): boolean {
+    return onPavement(this.player.pose);
   }
 
   /** The ambulance, if one is on the road. */
@@ -282,6 +331,8 @@ export class Simulation {
     this.marks = [];
     this.trail = [];
     this.merged = this.blindCarSent = false;
+    this.checked.clear();
+    this.endedEarly = false;
     this.topMph = 0;
     this.lastLook = -99;
     this.signEvents = this.buildSignEvents();
@@ -578,10 +629,12 @@ export class Simulation {
     if (this.merged && this.signalLeft && this.sideOffset() > -RW + 1.2) this.setSignalLeft(false);
     this.assess(P, dt, paved);
 
+    if (crossed(f0, f1, pt.sCW - 2)) this.checked.add('crosswalk');
     if (crossed(f0, f1, pt.sCW - 2) && this.peds.some((p) => p.road === this.startIdx && p.onRoad)) {
       this.violate('ped', 'yield', 15, 'You drove through an occupied crosswalk', 'Massachusetts law requires drivers to yield to people in a crosswalk. The in-street "State Law" sign is your reminder. Stop before the white bars.', true);
     }
     if (crossed(f0, f1, pt.sYield)) {
+      this.checked.add('yieldLine');
       if (this.simTime - this.lastLook > 8) this.violate('look', 'signals', 3, 'Check left before you enter', 'Traffic in a rotary comes from your left. Hold Look left as you reach the yield line so you can judge the gap.');
       const e = this.ems();
       if (e && e.path.inIdx !== pt.inIdx && this.approaching(e, pt.M, 4, 0)) {
@@ -610,6 +663,7 @@ export class Simulation {
     } else this.stopT = 0;
     if (crossed(s0, s1, pt.sExit)) this.sigAtExit = this.signal;
     if (crossed(s0, s1, pt.sOff)) {
+      this.checked.add('exit');
       if (this.sigAtExit) this.hooks.coach('good', 'Exit signaled', 'Your right blinker told drivers waiting at this entry that you were leaving, so they could go sooner.');
       else this.violate('signal', 'signals', 4, 'No exit signal', 'Turn on your right signal after you pass the exit before yours, so waiting drivers know you are leaving.');
     }
@@ -725,6 +779,7 @@ export class Simulation {
 
   private wrongExit(road: number): void {
     this.state = 'done';
+    this.endedEarly = true;
     const took = ROADS[road];
     const want = ROADS[this.destIdx];
     this.hooks.coach('warn', `You left toward ${took.town}`, `Your exit was Route ${want.route} to ${want.town}. If you miss an exit in a real rotary, don't brake or swerve: stay in the circle and go around again.`);
@@ -854,6 +909,7 @@ export class Simulation {
     const along = this.alongStart();
     if (was < -RW && o >= -RW) {
       this.merged = true;
+      this.checked.add('merge');
       let clean = true;
       if (!this.signalLeft) {
         clean = false;
@@ -876,6 +932,7 @@ export class Simulation {
       if (clean) this.hooks.coach('good', 'Clean lane change', 'Signal, mirror, shoulder check, then a smooth move into a safe gap. That is exactly how to change lanes.');
     } else if (o < -RW - 0.5 && along < LANE_END + 1) {
       this.merged = true;
+      this.checked.add('merge');
       this.violate('lc-missed', 'blind', 6, 'Merge before your lane ends', 'Your lane ran out. Signal and merge early, while there is still room, instead of waiting for the end of the taper.');
     }
   }
@@ -902,7 +959,7 @@ export class Simulation {
   private checkCrash(): void {
     const pp = this.player.pose;
     const front = add(pp, U(pp.h), 1.8);
-    for (const c of this.cars) if (!c.isPlayer && dist(c.pose, pp) < 3.0) return this.crash('car');
+    for (const c of this.cars) if (!c.isPlayer && dist(c.pose, pp) < 5 && carsOverlap(c.pose, pp)) return this.crash('car');
     for (const p of this.peds) if (dist(p, pp) < 1.5 || dist(p, front) < 1.2) return this.crash('ped');
     // Rows of houses line each road from 46 m out, set back 10.5 m from its centreline (see World.buildHouses).
     for (const r of ROADS) {

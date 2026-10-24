@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>FirstMile · Harvard to MIT</title>
+  <meta name="description" content="Drive the real route from Harvard's Lehman Hall to MIT Sloan, built from OpenStreetMap data.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Overpass:wght@400;600;800;900&family=Overpass+Mono:wght@500;700&display=swap">
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Hackachusetts 2026 · Civic track prototype</div>
+    <h1>First<span class="plate">Mile</span></h1>
+    <p class="tagline">Drive the real 2.1-mile route from Harvard's Lehman Hall to MIT Sloan: Dunster Street, Mount Auburn Street, Massachusetts Avenue and Main Street, with the real lanes, limits, signals, crosswalks and bike lanes.</p>
+  </header>
+
+  <nav class="tab-bar" aria-label="App sections">
+    <a class="tab-link" href="./index.html">Practice rotary</a>
+    <a class="tab-link" href="./real.html" aria-current="page">Real route: Harvard → MIT</a>
+  </nav>
+
+  <div class="app">
+    <div class="stage-col">
+      <div class="stage" id="stage">
+        <canvas class="view" id="view" aria-label="View from the driver's seat on real Cambridge streets between Harvard and MIT"></canvas>
+        <div class="cabin" aria-hidden="true">
+          <svg class="frame" viewBox="0 0 1600 1000" preserveAspectRatio="none">
+            <path d="M0 0 H1600 V52 Q800 86 0 52 Z" fill="var(--cab)"/>
+            <path d="M0 0 L205 0 L72 748 L0 760 Z" fill="var(--cab)"/>
+            <path d="M1600 0 L1395 0 L1528 748 L1600 760 Z" fill="var(--cab)"/>
+            <path d="M0 742 Q800 652 1600 742 V1000 H0 Z" fill="var(--cab-dash)"/>
+            <path d="M0 742 Q800 652 1600 742" fill="none" stroke="var(--cab-edge)" stroke-width="6"/>
+            <path d="M880 760 Q1080 742 1290 760 L1300 1000 H870 Z" fill="var(--cab)" opacity=".55"/>
+          </svg>
+          <div class="mirror" id="mirror"></div>
+          <div class="side-mirror left" id="mirror-l"></div>
+          <div class="side-mirror right" id="mirror-r"></div>
+          <div class="cluster">
+            <svg viewBox="0 0 200 128" id="gauge">
+              <rect x="2" y="2" width="196" height="124" rx="22" fill="#0B0D10" stroke="var(--cab-edge)" stroke-width="3"/>
+              <g id="ticks"></g>
+              <text x="100" y="86" text-anchor="middle" fill="var(--cab-ink)" font-family="Overpass Mono, monospace" font-weight="700" font-size="30" id="g-mph">0</text>
+              <text x="100" y="104" text-anchor="middle" fill="var(--cab-dim)" font-family="Overpass Mono, monospace" font-size="10" letter-spacing="1.5">MPH</text>
+              <text x="100" y="120" text-anchor="middle" fill="var(--cab-dim)" font-family="Overpass, sans-serif" font-weight="800" font-size="10" id="g-zone">LIMIT 20</text>
+              <line x1="100" y1="84" x2="100" y2="26" stroke="#F2B705" stroke-width="3.5" stroke-linecap="round" id="needle" transform="rotate(-120 100 84)"/>
+              <circle cx="100" cy="84" r="5" fill="#F2B705"/>
+              <path d="M30 22 l-12 8 l12 8 z" fill="#2A3B30" id="ind-l"/>
+              <path d="M170 22 l12 8 l-12 8 z" fill="#2A3B30" id="ind-r"/>
+            </svg>
+          </div>
+        </div>
+        <svg class="wheel" id="wheel" viewBox="0 0 200 200">
+          <circle cx="100" cy="100" r="86" fill="none" stroke="#202328" stroke-width="17"/>
+          <circle cx="100" cy="100" r="86" fill="none" stroke="#33373E" stroke-width="3" stroke-dasharray="60 480" stroke-dashoffset="-200"/>
+          <path d="M16 100 Q60 84 82 92 L82 112 Q60 118 18 112 Z" fill="#23262B"/>
+          <path d="M184 100 Q140 84 118 92 L118 112 Q140 118 182 112 Z" fill="#23262B"/>
+          <path d="M88 118 L112 118 L106 184 L94 184 Z" fill="#23262B"/>
+          <circle cx="100" cy="104" r="22" fill="#1A1D21" stroke="#30343A" stroke-width="2"/>
+        </svg>
+        <div class="console"><canvas id="mini" width="300" height="222"></canvas><span>NAV</span></div>
+        <div class="gear">P R N <b>D</b></div>
+        <div class="dash-clock" id="dash-clock"><small>DISTANCE LEFT</small><b id="dc-time">2.1 mi</b><span id="dc-sub">to MIT Sloan</span></div>
+        <div class="look-tag" id="look-tag">◂ Checking left</div>
+        <div class="card-pop" id="card-pop"><img id="cp-img" alt=""><div><small>Ahead</small><b id="cp-name">Sign</b><p id="cp-text"></p></div></div>
+        <div class="toast" id="toast" role="status"></div>
+        <div class="prompt" id="prompt"><b id="prompt-title">Hold Gas or ↑ to drive</b><span id="prompt-sub">Follow the NAV arrows. Z / X signal left / right, hold Q / E to check over your shoulder.</span></div>
+        <div class="result" id="result" hidden>
+          <div class="result-card" id="result-card">
+            <h2 id="r-title">Arrived</h2>
+            <div class="big" id="r-score">Score 100 / 100</div>
+            <p id="r-body"></p>
+            <ul class="cats" id="r-cats" aria-label="Score by category"></ul>
+            <div class="debrief">
+              <svg class="map" id="r-map" viewBox="0 0 300 300" role="img" aria-label="Map of the route you drove, with numbered spots where rules were broken"></svg>
+              <ol class="marks" id="r-marks"></ol>
+            </div>
+            <button class="btn gas" id="r-again" type="button">Drive again</button>
+          </div>
+        </div>
+      </div>
+      <p class="caption" id="photo-note">In Street photos view the windshield shows real Mapillary photos taken along this exact route, so the lights and cars in them are frozen from when each photo was taken. The traffic light shown top right, and the outlined people, cyclists and oncoming cars, are the simulated ones you must react to. The car follows the route; you control speed, signals (Z/X) and checks (Q/E).</p>
+      <p class="caption">Streets, lane counts, speed limits, one-way rules, traffic signal and stop sign locations, crosswalks, bike lanes, the railroad crossing and building footprints come from OpenStreetMap. Signal timing, traffic, pedestrians and cyclists are simulated. <span id="attribution"></span></p>
+    </div>
+
+    <aside class="rail">
+      <section class="card" aria-labelledby="m-h">
+        <div class="row">
+          <div class="eyebrow" id="m-h">Navigation</div>
+          <div class="seg" role="group" aria-label="View">
+            <button type="button" id="view-photo" aria-pressed="true">Street photos</button>
+            <button type="button" id="view-3d" aria-pressed="false">3D</button>
+          </div>
+        </div>
+        <div class="guide">
+          <div class="guide-tab" id="nav-dist">in 270 ft</div>
+          <div class="guide-main"><span class="shield" id="nav-arrow">↰</span><span class="guide-town" id="nav-next">Turn left onto Mount Auburn Street</span></div>
+          <div class="guide-sub">Lehman Hall, Harvard Yard → MIT Sloan, 100 Main St</div>
+        </div>
+      </section>
+
+      <section class="card ctrl" aria-label="Driving controls">
+        <div class="dash">
+          <div class="score"><span class="lbl">Score</span><b id="score">100</b></div>
+          <div class="zone"><b id="zone">Dunster Street</b><span id="zone-sub">One way · 20 mph</span></div>
+        </div>
+        <div class="pad">
+          <button class="btn steer" id="b-left" type="button" aria-label="Steer left">◀ Left</button>
+          <button class="btn steer" id="b-right" type="button" aria-label="Steer right">Right ▶</button>
+          <button class="btn look" id="b-look" type="button">◂ Look left</button>
+          <button class="btn look" id="b-look-r" type="button">Look right ▸</button>
+          <button class="btn signal" id="b-signal-l" type="button" aria-pressed="false">◂ Signal</button>
+          <button class="btn signal" id="b-signal" type="button" aria-pressed="false">Signal ▸</button>
+          <button class="btn brake" id="b-brake" type="button">Brake</button>
+          <button class="btn gas" id="b-gas" type="button">Gas</button>
+        </div>
+        <p class="keys">Keys: ↑ gas · ↓/Space brake · ← → steer · Q look left · E look right · Z ◂signal · X signal▸ · M sound · P pause · R restart</p>
+        <div class="row">
+          <span class="keys">Pass with 80+ and no critical error</span>
+          <div class="links">
+            <button class="link" id="b-sound" type="button" aria-pressed="true">Sound on</button>
+            <button class="link" id="b-pause" type="button" aria-pressed="false">Pause</button>
+            <button class="link" id="b-restart" type="button">New run</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="c-h">
+        <div class="eyebrow" id="c-h">Coach</div>
+        <ul class="feed" id="feed" aria-live="polite"></ul>
+      </section>
+    </aside>
+  </div>
+
+  <section class="learn" aria-labelledby="learn-h">
+    <div class="card score-card">
+      <h3 id="learn-h">How this drive is scored</h3>
+      <p>Same system as the practice rotary: 100 points across six categories. Steady habits lose points every second they slip; one-off rules lose a set amount. Critical errors fail the run whatever the score: any collision, running a red light, driving through an occupied crosswalk, an unsafe lane change, or turning right across a cyclist.</p>
+      <ul class="cats wide" id="score-rules"></ul>
+      <p class="fine">Rules summarized for practice. Check the official Massachusetts Driver's Manual from the RMV before your road test.</p>
+    </div>
+  </section>
+</div>
+
+<script type="module" src="/src/real/main.ts"></script>
+</body>
+</html>

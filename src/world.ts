@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { DCW, DEG, DEND, DY, LANE_DROP, LANE_END, R_IN, R_OUT, ROADS, RW, TAU, type Pt } from './constants';
 import { add, inboundEdge, lerpAngle, pickOne, rand, ringPt, roadPt, tanAt, U, yawFor } from './math';
-import type { Simulation } from './sim';
+import type { Pose } from './constants';
 import { SIGNS, type SignSpec } from './signs';
 import type { Phase, Weather } from './trip';
 
@@ -11,7 +11,7 @@ const RAIN_DROPS = 1500;
 /** Half-size of the box of rain kept around the driver, in metres. */
 const RAIN_BOX = 22;
 
-interface Layer {
+export interface Layer {
   color: number;
   y: number;
   pos: number[];
@@ -43,6 +43,20 @@ function skyTex(stops: [string, string, string]): THREE.CanvasTexture {
   return new THREE.CanvasTexture(c);
 }
 
+/** What the scene needs from a simulation: the cars, people and the driver's inputs. */
+export interface SceneSim {
+  cars: readonly {
+    id: number; isPlayer: boolean; pose: Pose; braking: boolean; color: string; ems?: boolean;
+    /** Which blinker is on; rotary cars leave it out and signal right as they near their exit. */
+    blink?: 'left' | 'right' | null;
+    s?: number; path?: { sExit: number; sOff: number };
+  }[];
+  peds: readonly { id: number; x: number; y: number; color: string; bike?: boolean; h?: number }[];
+  player: { pose: Pose };
+  steer: number;
+  input: { look: boolean; lookRight?: boolean };
+}
+
 export class World {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
@@ -64,13 +78,13 @@ export class World {
   /** Smoothed view heading, head turn and steering-wheel angle (degrees). */
   readonly cam = { h: -Math.PI / 2, prevH: -Math.PI / 2, yaw: 0, steer: 0 };
 
-  private readonly hemi = new THREE.HemisphereLight(0xe4f0ff, 0x5a6a48, 0.85);
-  private readonly sun = new THREE.DirectionalLight(0xffffff, 0.7);
-  private readonly fog = new THREE.Fog(0xd6e1e7, 110, 430);
-  private readonly flatMats: THREE.MeshBasicMaterial[] = [];
-  private readonly signMats: THREE.MeshBasicMaterial[] = [];
+  protected readonly hemi = new THREE.HemisphereLight(0xe4f0ff, 0x5a6a48, 0.85);
+  protected readonly sun = new THREE.DirectionalLight(0xffffff, 0.7);
+  protected readonly fog = new THREE.Fog(0xd6e1e7, 110, 430);
+  protected readonly flatMats: THREE.MeshBasicMaterial[] = [];
+  protected readonly signMats: THREE.MeshBasicMaterial[] = [];
   private readonly beam: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
-  private readonly layers = new Map<string, Layer>();
+  protected readonly layers = new Map<string, Layer>();
   private readonly carMeshes = new Map<number, THREE.Group>();
   private readonly pedMeshes = new Map<number, THREE.Group>();
   private readonly lights: Record<Phase, LightPreset>;
@@ -80,10 +94,10 @@ export class World {
   private phase: Phase = 'day';
   private wet = false;
   private headlights = false;
-  private maxAniso = 4;
+  protected maxAniso = 4;
 
-  private readonly poleMat = new THREE.MeshLambertMaterial({ color: 0x8a9096 });
-  private readonly poleGeo = new THREE.CylinderGeometry(0.05, 0.05, 1, 8);
+  protected readonly poleMat = new THREE.MeshLambertMaterial({ color: 0x8a9096 });
+  protected readonly poleGeo = new THREE.CylinderGeometry(0.05, 0.05, 1, 8);
   private readonly carGeo = {
     body: new THREE.BoxGeometry(4.4, 0.8, 1.85),
     cabin: new THREE.BoxGeometry(2.3, 0.62, 1.62),
@@ -220,14 +234,14 @@ export class World {
     this.buildSigns();
   }
 
-  private flatMat(color: number): THREE.MeshBasicMaterial {
+  protected flatMat(color: number): THREE.MeshBasicMaterial {
     const m = new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide });
     m.userData.base = m.color.clone();
     this.flatMats.push(m);
     return m;
   }
 
-  private layer(key: string, color: number, y: number): Layer {
+  protected layer(key: string, color: number, y: number): Layer {
     let L = this.layers.get(key);
     if (!L) {
       L = { color, y, pos: [] };
@@ -236,17 +250,17 @@ export class World {
     return L;
   }
 
-  private quad(L: Layer, a: Pt, b: Pt, c: Pt, d: Pt): void {
+  protected quad(L: Layer, a: Pt, b: Pt, c: Pt, d: Pt): void {
     const y = L.y;
     L.pos.push(a.x, y, a.y, b.x, y, b.y, c.x, y, c.y, a.x, y, a.y, c.x, y, c.y, d.x, y, d.y);
   }
 
-  private tri(L: Layer, a: Pt, b: Pt, c: Pt): void {
+  protected tri(L: Layer, a: Pt, b: Pt, c: Pt): void {
     const y = L.y;
     L.pos.push(a.x, y, a.y, b.x, y, b.y, c.x, y, c.y);
   }
 
-  private strip(L: Layer, phi: number, d0: number, d1: number, off: number, w: number): void {
+  protected strip(L: Layer, phi: number, d0: number, d1: number, off: number, w: number): void {
     this.quad(L, roadPt(phi, d0, off - w / 2), roadPt(phi, d1, off - w / 2), roadPt(phi, d1, off + w / 2), roadPt(phi, d0, off + w / 2));
   }
 
@@ -401,7 +415,7 @@ export class World {
     for (let k = 0; k < 4; k++) tree(ringPt((k * TAU) / 4 + 0.6, rand(10, 13)), 0.85);
   }
 
-  private canvasTex(spec: SignSpec, back = false): THREE.CanvasTexture {
+  protected canvasTex(spec: SignSpec, back = false): THREE.CanvasTexture {
     const c = document.createElement('canvas');
     c.width = Math.round(spec.w * PPM);
     c.height = Math.round(spec.h * PPM);
@@ -416,7 +430,7 @@ export class World {
     return t;
   }
 
-  private placeSign(spec: SignSpec, pos: Pt, face: Pt, bottom: number, poles = 1): void {
+  protected placeSign(spec: SignSpec, pos: Pt, face: Pt, bottom: number, poles = 1): void {
     const grp = new THREE.Group();
     const geo = new THREE.PlaneGeometry(spec.w, spec.h);
     const fMat = new THREE.MeshBasicMaterial({ map: this.canvasTex(spec), transparent: true, alphaTest: 0.5 });
@@ -525,6 +539,21 @@ export class World {
     return g;
   }
 
+  /** Two wheels and a frame under a pedestrian mesh turn it into a cyclist (riding along local +x). */
+  private addBike(g: THREE.Group): void {
+    const wheel = new THREE.TorusGeometry(0.33, 0.04, 6, 16);
+    const mat = new THREE.MeshLambertMaterial({ color: 0x222222 });
+    for (const x of [-0.55, 0.55]) {
+      const w = new THREE.Mesh(wheel, mat);
+      w.position.set(x, 0.34, 0);
+      g.add(w);
+    }
+    const frame = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.05, 0.05), new THREE.MeshLambertMaterial({ color: 0x2f6fb0 }));
+    frame.position.set(0, 0.62, 0);
+    g.add(frame);
+    for (const c of g.children.slice(0, 3)) c.position.y += 0.45;
+  }
+
   private makePed(color: string): THREE.Group {
     const g = new THREE.Group();
     const legs = new THREE.Mesh(this.pedGeo.legs, this.pedMat.legs);
@@ -546,7 +575,7 @@ export class World {
   }
 
   /** Match meshes to the simulation and move the driver's cameras. */
-  sync(sim: Simulation, dt: number): void {
+  sync(sim: SceneSim, dt: number): void {
     const liveCars = new Set<number>();
     for (const c of sim.cars) {
       if (c.isPlayer) continue;
@@ -562,11 +591,12 @@ export class World {
       for (const t of mesh.userData.tails as THREE.Mesh[]) t.material = lamp;
       const sigs = mesh.userData.signals as { right: THREE.Mesh[]; left: THREE.Mesh[] } | undefined;
       if (sigs) {
-        const nearExit = c.s > c.path.sExit - 20 && c.s < c.path.sOff + 5;
+        const blink = c.blink !== undefined ? c.blink
+          : c.path && c.s !== undefined && c.s > c.path.sExit - 20 && c.s < c.path.sOff + 5 ? 'right' : null;
         const flip = Math.floor(performance.now() / 500) % 2 === 0;
-        const sigOn = nearExit && flip ? this.carMat.signalOn : this.carMat.signalOff;
-        for (const m of sigs.right) m.material = sigOn;
-        for (const m of sigs.left) m.material = this.carMat.signalOff;
+        const on = (side: 'left' | 'right') => (blink === side && flip ? this.carMat.signalOn : this.carMat.signalOff);
+        for (const m of sigs.right) m.material = on('right');
+        for (const m of sigs.left) m.material = on('left');
       }
       const bars = mesh.userData.bars as THREE.Mesh[] | undefined;
       if (bars) {
@@ -588,9 +618,11 @@ export class World {
       let mesh = this.pedMeshes.get(p.id);
       if (!mesh) {
         mesh = this.makePed(p.color);
+        if (p.bike) this.addBike(mesh);
         this.pedMeshes.set(p.id, mesh);
       }
       mesh.position.set(p.x, 0, p.y);
+      if (p.h !== undefined) mesh.rotation.y = -p.h;
     }
     for (const [id, mesh] of this.pedMeshes) {
       if (!livePeds.has(id)) {

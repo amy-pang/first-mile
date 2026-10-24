@@ -197,6 +197,91 @@ export const SIGNS = {
     },
   }),
 
+  /** Stop (R1-1): red octagon. */
+  stopSign: (): SignSpec => ({
+    w: 0.9,
+    h: 0.9,
+    shape: (g, W, H) => {
+      g.beginPath();
+      for (let k = 0; k < 8; k++) {
+        const a = Math.PI / 8 + (k * Math.PI) / 4;
+        g.lineTo(W / 2 + Math.cos(a) * W / 2, H / 2 + Math.sin(a) * H / 2);
+      }
+      g.closePath();
+    },
+    draw(g, W, H) {
+      const oct = (r: number) => {
+        g.beginPath();
+        for (let k = 0; k < 8; k++) {
+          const a = Math.PI / 8 + (k * Math.PI) / 4;
+          g.lineTo(W / 2 + Math.cos(a) * r, H / 2 + Math.sin(a) * r);
+        }
+        g.closePath();
+      };
+      oct(W / 2);
+      g.fillStyle = WHITE;
+      g.fill();
+      oct(W * 0.46);
+      g.fillStyle = RED;
+      g.fill();
+      text(g, 'STOP', W / 2, H * 0.53, FONT(900, W * 0.3), WHITE);
+    },
+  }),
+
+  /** Railroad crossbuck (R15-1). */
+  crossbuck: (): SignSpec => ({
+    w: 1.3,
+    h: 1.3,
+    shape: (g, W, H) => {
+      g.beginPath();
+      g.rect(0, H * 0.42, W, H * 0.16);
+      g.rect(W * 0.42, 0, W * 0.16, H);
+    },
+    draw(g, W, H) {
+      for (const a of [Math.PI / 4, -Math.PI / 4]) {
+        g.save();
+        g.translate(W / 2, H / 2);
+        g.rotate(a);
+        g.fillStyle = INK;
+        g.fillRect(-W * 0.5, -H * 0.085, W, H * 0.17);
+        g.fillStyle = WHITE;
+        g.fillRect(-W * 0.49, -H * 0.075, W * 0.98, H * 0.15);
+        text(g, a > 0 ? 'RAILROAD' : 'CROSSING', 0, H * 0.005, FONT(900, H * 0.1), INK);
+        g.restore();
+      }
+    },
+  }),
+
+  /** Signal ahead (W3-3): a traffic light on a yellow diamond. */
+  signalAhead: (): SignSpec => ({
+    w: 1.2,
+    h: 1.2,
+    shape: diamondShape,
+    draw(g, W, H) {
+      yellowDiamond(g, W, H);
+      rrPath(g, W * 0.4, H * 0.24, W * 0.2, H * 0.52, W * 0.04);
+      g.fillStyle = INK;
+      g.fill();
+      ['#E0302A', '#F5C400', '#2FB36F'].forEach((c, k) => {
+        g.beginPath();
+        g.arc(W / 2, H * (0.33 + k * 0.17), W * 0.065, 0, TAU);
+        g.fillStyle = c;
+        g.fill();
+      });
+    },
+  }),
+
+  /** Green street-name blade, as on Cambridge corners. */
+  streetBlade: (name: string): SignSpec => ({
+    w: Math.max(1.4, name.length * 0.13 + 0.4),
+    h: 0.32,
+    shape: rectShape,
+    draw(g, W, H) {
+      bordered(g, W, H, GREEN, WHITE, H * 0.08, H * 0.05);
+      text(g, name.replace(/\bStreet\b/, 'St').replace(/\bAvenue\b/, 'Ave').toUpperCase(), W / 2, H * 0.55, FONT(800, H * 0.5), WHITE);
+    },
+  }),
+
   /** Lane ends (MUTCD W4-2): the right-hand lane line bends in to join the left one. */
   laneEnds: (): SignSpec => ({
     w: 1.5,

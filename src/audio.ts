@@ -3,7 +3,24 @@
  * blinker, horn, crash and coach chimes. Mixed low, like a quiet cabin, so it adds realism without
  * pulling attention from the road.
  */
-import { onPavement, type CoachKind, type Simulation } from './sim';
+import type { Pose } from './constants';
+import type { CoachKind } from './sim';
+import type { Traffic, Weather } from './trip';
+
+/** What the sound engine needs from a simulation. */
+export interface AudibleSim {
+  player: { v: number; pose: Pose };
+  input: { gas: boolean; brake: boolean };
+  state: string;
+  traffic: Traffic;
+  weather: Weather;
+  signal: boolean;
+  signalLeft: boolean;
+  flags: Record<string, boolean>;
+  ems(): { pose: Pose } | undefined;
+  /** False while the car is off the pavement (curb rumble). */
+  paved(): boolean;
+}
 
 const STORE_KEY = 'firstmile-sound';
 
@@ -128,7 +145,7 @@ export class CarAudio {
   }
 
   /** Called every frame with the simulation state. */
-  update(sim: Simulation, paused: boolean, now: number, viewH: number): void {
+  update(sim: AudibleSim, paused: boolean, now: number, viewH: number): void {
     const ctx = this.ctx;
     if (!ctx) return;
     const t = ctx.currentTime;
@@ -170,7 +187,7 @@ export class CarAudio {
     // Tyres and wind grow gently with speed.
     set(this.road.gain.gain, Math.min(0.22, v * 0.014) * duck, 0.3);
     set(this.road.filter.frequency, 300 + v * 35, 0.3);
-    const offRoad = v > 0.5 && !onPavement(P.pose);
+    const offRoad = v > 0.5 && !sim.paved();
     set(this.rumble.gain, offRoad ? Math.min(0.5, 0.2 + v * 0.03) : 0, 0.05);
 
     // Distant traffic outside the closed windows, a little busier at rush hour.

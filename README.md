@@ -20,6 +20,21 @@ Built for **Hackachusetts 2026 · Civic track**.
 - **Score based on driving habits.** 100 points across six weighted categories: right of way (30), speed control (20), following distance (15, two-second rule, three in rain), lane position and steering (15), signals and checks (10) and checking blind spots (10). Steady habits lose points every second they slip, scaled by how far off you are; one-off rules lose a fixed amount. Pass with 80+ and no critical error (collision, occupied crosswalk, failing to yield, pulling out in front of an ambulance, an unsafe lane change). Taking the wrong exit or arriving late costs nothing. The result card shows the breakdown.
 - **Rules and signs guide.** Plain-language explanations of rotary rules and other Massachusetts rules newcomers often miss.
 
+## Real route: Harvard → MIT
+
+`real.html` (the "Real Route" tab) is a second mode: the actual 2.1-mile drive from Lehman Hall in Harvard Yard to MIT Sloan at 100 Main St, via Dunster St, Mount Auburn St (MA 2A), Massachusetts Ave, Sidney St Extension and Main St.
+
+- **From OpenStreetMap (real):** the route itself (the shortest legal drive, respecting one-way streets), lane counts per direction, speed limits (20 and 25 mph), one-way rules, bike lanes and tracks, the 17 signalized stops, the stop sign on Dunster St, 25 unsignalized crosswalks, the Main St railroad crossing, bike boxes, cross-street names, nearby streets and 526 building footprints with heights.
+- **Simulated:** signal timing, traffic, pedestrians and cyclists. Turn-lane assignments are inferred from OSM `turn:lanes` and lane counts. Sign placement is inferred where OSM gives a rule but not a sign position (for example a speed-limit sign where `maxspeed` changes).
+- **Rules checked:** red lights and the stop sign, crosswalks, yielding to oncoming traffic on the left turn at Lafayette Square, signaling and the correct lane for each turn, mirror and shoulder checks for lane changes and for cyclists before right turns, staying out of the bike lane, never stopping on the railroad tracks, speed and following distance. Scoring uses the same six categories and pass mark as the rotary.
+- `real.html?at=2000` starts partway along the route (metres from Lehman Hall).
+
+**Street photos view (default):** the windshield shows real street-level photos from [Mapillary](https://www.mapillary.com) (CC-BY-SA 4.0), one every 8 m along the exact route, preferring recent, sharp, daytime, forward-facing shots. The car follows the route on its own; you control speed, turn signals and head checks (Q/E). The traffic light, pedestrians, cyclists and oncoming cars you must react to are simulated and drawn over the photo; the lights and cars in the photos themselves are frozen from when they were taken. Scoring in this view: right of way 35, speed 25, turn signals 20, checking before turns 20. Switch to **3D** for free steering, lane keeping and the full six categories.
+
+To fetch the photos (about 44 MB, git-ignored), put a free Mapillary client token with Read access in `.env.local` as `MAPILLARY_TOKEN=MLY|...`, then run `python3 scripts/fetch-street-photos.py`. Without the photos the page falls back to the 3D view.
+
+Rebuild the data with `python3 scripts/build-real-route.py`. It downloads the OSM tiles into `data/osm-route/` (git-ignored) on the first run and writes `public/real-route.json`. Map data © OpenStreetMap contributors, ODbL 1.0.
+
 ## Getting started
 
 Requires [Node.js](https://nodejs.org/) 18 or newer.
@@ -62,6 +77,7 @@ src/
   audio.ts          Synthesised engine, road, rain, siren, blinker, horn and crash sounds
   trip.ts           Trip times, traffic and lighting by time of day
   ui.ts             Controls, instruments, route map, coach feed, guide
+  real/             Real-route mode: data loader (data.ts), simulation (sim.ts), 3D scene (world.ts), page UI (ui.ts)
   style.css         Styles
 ```
 
