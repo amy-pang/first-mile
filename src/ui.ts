@@ -220,7 +220,7 @@ export class UI implements SimHooks {
   result(r: RunResult): void {
     el('result-card').className = `result-card ${r.pass ? 'pass' : 'fail-card'}`;
     el('r-title').textContent = r.title;
-    el('r-score').textContent = `Score ${this.sim.score} / 100 · top speed ${Math.round(this.sim.topMph)} mph`;
+    el('r-score').textContent = `Driving quality ${this.sim.score} / 100 · top speed ${Math.round(this.sim.topMph)} mph`;
     const cats = el('r-cats');
     cats.innerHTML = '';
     for (const c of this.sim.breakdown()) cats.append(this.catRow(c.label, `${c.got}/${c.weight}`, c.got / c.weight));
@@ -994,11 +994,11 @@ export class UI implements SimHooks {
     const title = document.createElement('h2');
     title.className = 'runs-title';
     title.textContent = 'My Drives';
-    const passCount = runs.filter((r) => r.overall_score >= 80).length;
+    const finishedCount = runs.filter((r) => r.reached_end ?? (r.overall_score >= 80)).length;
     const best = Math.max(...runs.map((r) => r.overall_score));
     const summary = document.createElement('p');
     summary.className = 'runs-summary';
-    summary.textContent = `${runs.length} drive${runs.length === 1 ? '' : 's'} · ${passCount} passed · best score ${best}`;
+    summary.textContent = `${runs.length} drive${runs.length === 1 ? '' : 's'} · ${finishedCount} reached the end · best driving quality ${best}/100`;
     header.append(title, summary);
     host.append(header);
 
@@ -1008,10 +1008,10 @@ export class UI implements SimHooks {
 
     const thead = document.createElement('thead');
     const headRow = document.createElement('tr');
-    for (const label of ['Date', 'Time', 'Score', 'Result']) {
+    for (const label of ['Date', 'Time', 'Driving Quality', 'Reached End']) {
       const th = document.createElement('th');
       th.textContent = label;
-      if (label === 'Score') th.className = 'col-num';
+      if (label === 'Driving Quality') th.className = 'col-num';
       headRow.append(th);
     }
     thead.append(headRow);
@@ -1019,7 +1019,8 @@ export class UI implements SimHooks {
 
     const tbody = document.createElement('tbody');
     for (const run of runs) {
-      const pass = run.overall_score >= 80;
+      // Prefer the stored reached_end flag; fall back to score for older rows that predate it.
+      const reachedEnd = run.reached_end ?? (run.overall_score >= 80);
       const d = new Date(run.created_at);
       const tr = document.createElement('tr');
 
@@ -1032,12 +1033,12 @@ export class UI implements SimHooks {
 
       const scoreCell = document.createElement('td');
       scoreCell.className = 'col-num';
-      scoreCell.textContent = String(run.overall_score);
+      scoreCell.textContent = `${run.overall_score} / 100`;
 
       const resultCell = document.createElement('td');
       const badge = document.createElement('span');
-      badge.className = `run-badge ${pass ? 'is-pass' : 'is-fail'}`;
-      badge.textContent = pass ? 'Pass' : 'Fail';
+      badge.className = `run-badge ${reachedEnd ? 'is-pass' : 'is-fail'}`;
+      badge.textContent = reachedEnd ? 'Reached end' : 'Did not finish';
       resultCell.append(badge);
 
       tr.append(dateCell, timeCell, scoreCell, resultCell);
