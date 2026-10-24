@@ -237,7 +237,7 @@ h1 .plate{display:inline-block; margin-left:.06em; background:var(--guide); colo
 .sign-card p + p{margin-top:6px; color:var(--fg)}
 
 /* tab navigation */
-.tab-bar{display:flex; gap:2px; border-bottom:1px solid var(--line); margin-bottom:4px}
+.tab-bar{display:flex; gap:2px; border-bottom:1px solid var(--line); margin-bottom:4px; position:sticky; top:0; z-index:20; background:var(--bg)}
 .tab-bar button{font:inherit; font-family:var(--display); font-weight:700; font-size:15px; padding:9px 20px 8px; border:none; border-bottom:2px solid transparent; margin-bottom:-1px; background:none; color:var(--muted); cursor:pointer; border-radius:4px 4px 0 0}
 .tab-bar button[aria-selected="true"]{color:var(--guide); border-bottom-color:var(--guide)}
 .tab-bar button:hover:not([aria-selected="true"]){color:var(--fg)}
@@ -296,17 +296,24 @@ h1 .plate{display:inline-block; margin-left:.06em; background:var(--guide); colo
 .runs-error{margin:0; font-size:14px; color:var(--yield); font-weight:700}
 .runs-history-card{gap:12px}
 
-.runs-list{display:flex; flex-direction:column; gap:6px}
-.run-row{display:grid; grid-template-columns:84px 72px 1fr; gap:10px; align-items:center; padding:9px 12px; border-radius:8px; border:1px solid var(--line); border-left-width:3px; background:var(--bg)}
-.run-row.pass{border-left-color:var(--ok)}
-.run-row.fail{border-left-color:var(--yield)}
+/* runs history table */
+.runs-header{display:flex; flex-direction:column; gap:2px}
+.runs-title{margin:0; font-family:var(--display); font-weight:800; font-size:22px; line-height:1.2}
+.runs-summary{margin:0; font-size:13px; color:var(--muted)}
+.runs-table{width:100%; border-collapse:collapse; background:var(--surface); border:1px solid var(--line); border-radius:10px; overflow:hidden; font-size:14px}
+.runs-table th{text-align:left; font-family:var(--mono); font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); padding:10px 14px; border-bottom:1px solid var(--line); background:var(--bg)}
+.runs-table td{padding:11px 14px; border-bottom:1px solid var(--line)}
+.runs-table tbody tr:last-child td{border-bottom:none}
+.runs-table tbody tr:hover{background:var(--bg)}
+.runs-table .col-num{text-align:right; font-family:var(--mono); font-variant-numeric:tabular-nums; font-weight:700}
+.runs-table .col-muted{color:var(--muted)}
 .run-date{font-size:13px; line-height:1.3}
 .run-date small{color:var(--muted); font-size:11.5px}
 .run-score-col{display:flex; flex-direction:column; gap:2px}
 .run-score-col b{font-family:var(--mono); font-weight:700; font-size:20px; font-variant-numeric:tabular-nums; line-height:1}
 .run-badge{display:inline-block; font-family:var(--mono); font-size:10.5px; font-weight:700; letter-spacing:.06em; border-radius:4px; padding:1px 6px 0; border:1.5px solid currentColor}
-.run-badge.pass{color:var(--ok)}
-.run-badge.fail{color:var(--yield)}
+.run-badge.is-pass{color:var(--ok)}
+.run-badge.is-fail{color:var(--yield)}
 .run-bars{display:flex; gap:3px; align-items:flex-end; height:32px}
 .run-bar-col{flex:1; height:100%; background:var(--line); border-radius:2px 2px 0 0; position:relative; overflow:hidden; cursor:default}
 .run-bar-col span{position:absolute; bottom:0; left:0; right:0; background:var(--ok); border-radius:2px 2px 0 0}

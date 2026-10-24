@@ -97,11 +97,14 @@ function wireAuthModal(auth: AuthManager): void {
 function showFailure(stage: HTMLElement): void {
   const f = document.createElement('div');
   f.className = 'fail';
-  f.textContent = 'The 3D view could not load in this browser. Try refreshing, or open the page in a current version of Chrome, Safari, Edge or Firefox.';
+  f.textContent = 'The 3D driving view could not start — the browser ran out of WebGL contexts or hardware acceleration is off. Fix: fully quit and reopen your browser (close all tabs of this app first), then reload. If it persists, enable hardware acceleration in your browser settings. The other tabs still work.';
   stage.append(f);
 }
 
 async function boot(): Promise<void> {
+  window.addEventListener('error', (e) => console.error('uncaught error', e.error ?? e.message));
+  window.addEventListener('unhandledrejection', (e) => console.error('unhandled rejection', e.reason));
+
   const stage = document.getElementById('stage')!;
   const ui = new UI();
 
@@ -135,7 +138,11 @@ async function boot(): Promise<void> {
       document.getElementById('mirror-l')!,
       document.getElementById('mirror-r')!,
     ]);
-  } catch {
+  } catch (e) {
+    // No WebGL: the 3D Drive view can't run, but the other tabs (My Runs, Crash Map,
+    // Before You Drive) are plain DOM and must keep working. Tab handlers are already
+    // wired above, so we just show a message in the Drive panel and stop here.
+    console.error('WebGL init failed', e);
     showFailure(stage);
     return;
   }
@@ -159,16 +166,26 @@ async function boot(): Promise<void> {
   for (let i = 0; i < 900; i++) sim.step(0.05);
   world.resetView(sim.player.pose.h);
 
+  const drivePanel = document.getElementById('tab-drive');
   let last = performance.now();
   const frame = (t: number) => {
-    const dt = Math.max(0, Math.min(0.05, (t - last) / 1000));
-    last = t;
-    if (!ui.paused) sim.step(dt);
-    world.sync(sim, ui.paused ? 0 : dt);
-    world.render();
-    ui.update(dt, t);
-    audio.update(sim, ui.paused, t, world.cam.h);
-    requestAnimationFrame(frame);
+    try {
+      const dt = Math.max(0, Math.min(0.05, (t - last) / 1000));
+      last = t;
+      // Only run the (expensive, DOM-touching) drive pipeline while the Drive tab is visible.
+      if (!drivePanel || !drivePanel.hidden) {
+        if (!ui.paused) sim.step(dt);
+        world.sync(sim, ui.paused ? 0 : dt);
+        world.render();
+        ui.update(dt, t);
+        audio.update(sim, ui.paused, t, world.cam.h);
+      }
+    } catch (e) {
+      // A single bad frame must never kill the loop or wedge the page.
+      console.error('frame error', e);
+    } finally {
+      requestAnimationFrame(frame);
+    }
   };
   world.sync(sim, 0.05);
   world.render();
