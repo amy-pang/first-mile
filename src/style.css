@@ -231,3 +231,32 @@ h1 .plate{display:inline-block; margin-left:.06em; background:var(--guide); colo
 .sign-card h4{margin:2px 0 4px; font-family:var(--display); font-weight:800; font-size:16px; line-height:1.2}
 .sign-card p{margin:0; font-size:13.5px; color:var(--muted)}
 .sign-card p + p{margin-top:6px; color:var(--fg)}
+
+/* tab navigation */
+.tab-bar{display:flex; gap:2px; border-bottom:1px solid var(--line); margin-bottom:4px}
+.tab-bar button{font:inherit; font-family:var(--display); font-weight:700; font-size:15px; padding:9px 20px 8px; border:none; border-bottom:2px solid transparent; margin-bottom:-1px; background:none; color:var(--muted); cursor:pointer; border-radius:4px 4px 0 0}
+.tab-bar button[aria-selected="true"]{color:var(--guide); border-bottom-color:var(--guide)}
+.tab-bar button:hover:not([aria-selected="true"]){color:var(--fg)}
+.tab-bar button:focus-visible{outline:2px solid var(--amber); outline-offset:2px}
+
+/* map tab layout */
+.map-page{display:grid; grid-template-columns:minmax(0,1fr) 260px; gap:28px; align-items:start}
+@media (max-width:860px){.map-page{grid-template-columns:1fr}}
+.map-title{margin:4px 0 8px; font-family:var(--display); font-weight:900; font-size:clamp(20px,2.8vw,28px); line-height:1.1}
+.map-desc{margin:0 0 14px; color:var(--muted); font-size:14px; max-width:72ch}
+.map-sidebar{display:flex; flex-direction:column; gap:10px; position:sticky; top:16px}
+.map-sidebar .eyebrow{margin-bottom:4px}
+.map-source{font-size:12px; color:var(--muted); margin:8px 0 0}
+
+/* city crash map */
+#city-map{display:block; width:100%; height:auto; border-radius:8px; background:#0F1A14}
+.map-layer-toggle{display:flex; gap:6px; margin-top:8px; flex-wrap:wrap}
+.map-layer-toggle button{font:inherit; font-size:12px; font-weight:700; padding:4px 12px; border-radius:999px; border:1.5px solid var(--line); background:transparent; color:var(--muted); cursor:pointer}
+.map-layer-toggle button[aria-pressed="true"]{background:var(--guide); border-color:var(--guide); color:var(--guide-ink)}
+.map-layer-toggle button:focus-visible{outline:2px solid var(--amber); outline-offset:2px}
+.map-stats{display:flex; flex-direction:column; gap:6px; margin-top:10px}
+.stat-chip{display:flex; align-items:baseline; gap:7px; font-size:13px}
+.stat-chip b{font-family:var(--mono); font-weight:700; font-size:15px; color:var(--fg); min-width:3.5ch}
+.stat-chip span{color:var(--muted)}
+.stat-chip.warn b{color:var(--warn-ink)}
+.stat-chip.bad b{color:var(--yield)}
