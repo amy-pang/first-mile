@@ -6,11 +6,12 @@ Built for **Hackachusetts 2026 · Civic track**.
 
 ## Features
 
+- **Free steering.** Steer with the arrow keys or the on-screen buttons. The wheels straighten when you let go, and you can miss your exit and go around again.
 - **Driver's-seat view.** You see the road through the windshield, with a steering wheel that turns, a speedometer, a rear-view mirror, a nav screen and a dashboard trip clock.
 - **Massachusetts-style signs.** Speed limit, rotary diagram with route shields, rotary warning with a 20 mph advisory, pedestrian crossing, the "State Law" crosswalk sign, Yield and One Way. Each sign pops up with an explanation as you approach it.
 - **Route map.** Choose your start and destination around the rotary (US 20 Allston, MA 2A Cambridge, MA 16 Somerville, MA 2 West Arlington).
 - **Trip times.** Set when you leave and when you need to arrive. Your departure time sets traffic (rush hour, moderate, light) and lighting (day, sunrise, sunset, night). The trip clock runs 20× real time.
-- **Rule checks and coaching.** Yielding to circulating traffic, looking left, stopping for pedestrians, speed, not stopping inside the rotary, and signaling your exit. Arriving late never costs points; speeding does.
+- **Rule checks and coaching.** Yielding to circulating traffic, looking left, stopping for pedestrians, speed, not stopping inside the rotary, signaling your exit, keeping right of the yellow line, staying on the road and out of the centre island, and taking the right exit. Arriving late never costs points; speeding does.
 - **Rules and signs guide.** Plain-language explanations of rotary rules and other Massachusetts rules newcomers often miss.
 
 ## Getting started
@@ -31,8 +32,9 @@ npm run typecheck  # type-check only
 |---|---|---|
 | Gas | Gas | ↑ or W |
 | Brake | Brake | ↓, S or Space |
-| Look left | Look left | ← or A |
-| Signal right | Signal | → or D |
+| Steer left / right | Left / Right | ← → or A D |
+| Look left | Look left | Q |
+| Signal right | Signal | E |
 | Pause | Pause | P |
 | Restart | New run | R |
 

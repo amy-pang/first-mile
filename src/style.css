@@ -153,6 +153,7 @@ h1 .plate{display:inline-block; margin-left:.06em; background:var(--guide); colo
 .btn.signal{background:transparent; color:var(--fg); border-color:var(--amber)}
 .btn.signal[aria-pressed="true"]{background:var(--amber); color:var(--sign-ink); animation:blink 1s steps(2,start) infinite}
 .btn.look{background:transparent; color:var(--fg); border-color:var(--line)}
+.btn.steer{background:var(--fg); color:var(--bg)}
 .btn.on{transform:translateY(2px); filter:brightness(.88)}
 .btn.look.on{border-color:var(--fg)}
 @keyframes blink{50%{filter:brightness(.7)}}
