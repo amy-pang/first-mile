@@ -237,7 +237,7 @@ h1 .plate{display:inline-block; margin-left:.06em; background:var(--guide); colo
 .sign-card p + p{margin-top:6px; color:var(--fg)}
 
 /* tab navigation */
-.tab-bar{display:flex; gap:2px; border-bottom:1px solid var(--line); margin-bottom:4px; position:sticky; top:0; z-index:20; background:var(--bg)}
+.tab-bar{display:flex; gap:2px; border-bottom:1px solid var(--line); margin-bottom:4px}
 .tab-bar button{font:inherit; font-family:var(--display); font-weight:700; font-size:15px; padding:9px 20px 8px; border:none; border-bottom:2px solid transparent; margin-bottom:-1px; background:none; color:var(--muted); cursor:pointer; border-radius:4px 4px 0 0}
 .tab-bar button[aria-selected="true"]{color:var(--guide); border-bottom-color:var(--guide)}
 .tab-bar button:hover:not([aria-selected="true"]){color:var(--fg)}
@@ -300,8 +300,9 @@ h1 .plate{display:inline-block; margin-left:.06em; background:var(--guide); colo
 .runs-header{display:flex; flex-direction:column; gap:2px}
 .runs-title{margin:0; font-family:var(--display); font-weight:800; font-size:22px; line-height:1.2}
 .runs-summary{margin:0; font-size:13px; color:var(--muted)}
-.runs-table{width:100%; border-collapse:collapse; background:var(--surface); border:1px solid var(--line); border-radius:10px; overflow:hidden; font-size:14px}
-.runs-table th{text-align:left; font-family:var(--mono); font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); padding:10px 14px; border-bottom:1px solid var(--line); background:var(--bg)}
+.runs-table-wrap{border:1px solid var(--line); border-radius:10px; overflow:auto; max-height:min(60vh,520px); background:var(--surface)}
+.runs-table{width:100%; border-collapse:collapse; background:var(--surface); font-size:14px}
+.runs-table th{text-align:left; font-family:var(--mono); font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); padding:10px 14px; border-bottom:1px solid var(--line); background:var(--bg); position:sticky; top:0; z-index:1}
 .runs-table td{padding:11px 14px; border-bottom:1px solid var(--line)}
 .runs-table tbody tr:last-child td{border-bottom:none}
 .runs-table tbody tr:hover{background:var(--bg)}

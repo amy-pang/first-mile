@@ -229,16 +229,15 @@ export class UI implements SimHooks {
 
     const saveEl = el('run-save-status');
     if (this.auth?.user) {
-      saveEl.textContent = 'Saving…';
+      // Save silently in the background; only surface a message if it fails.
+      saveEl.textContent = '';
       saveEl.className = 'run-save-status';
-      saveEl.hidden = false;
+      saveEl.hidden = true;
       void this.auth.saveRun(this.sim).then((err) => {
         if (err) {
           saveEl.textContent = `Could not save run: ${err}`;
           saveEl.className = 'run-save-status error';
-        } else {
-          saveEl.textContent = 'Run saved';
-          saveEl.className = 'run-save-status saved';
+          saveEl.hidden = false;
         }
       });
     } else {
@@ -1045,7 +1044,10 @@ export class UI implements SimHooks {
       tbody.append(tr);
     }
     table.append(tbody);
-    host.append(table);
+    const tableWrap = document.createElement('div');
+    tableWrap.className = 'runs-table-wrap';
+    tableWrap.append(table);
+    host.append(tableWrap);
   }
 
   private buildCrashStats(): void {
