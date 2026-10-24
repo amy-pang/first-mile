@@ -114,7 +114,7 @@ export class UI implements SimHooks {
     this.renderMap();
     el('result').hidden = true;
     if (this.paused) this.setPause(false);
-    this.setPrompt('Hold Gas or ↑ to drive', 'Your lane ends ahead: Z signals left, hold Q to check your blind spot, then merge. E signals right.');
+    this.setPrompt('Hold Gas or ↑ to drive', 'Your lane ends ahead: Z signals left, hold Q to look left, E to look right. X signals right.');
     el('prompt').hidden = false;
   }
 
@@ -328,7 +328,16 @@ export class UI implements SimHooks {
     const blink = now % 800 < 440;
     el('ind-r').setAttribute('fill', sim.signal && blink ? '#3BE07A' : '#2A3B30');
     el('ind-l').setAttribute('fill', sim.signalLeft && blink ? '#3BE07A' : '#2A3B30');
-    el('look-tag').classList.toggle('on', sim.input.look);
+    const lookTag = el('look-tag');
+    if (sim.input.lookRight) {
+      lookTag.textContent = 'Checking right ▸';
+      lookTag.classList.add('on');
+    } else if (sim.input.look) {
+      lookTag.textContent = '◂ Checking left';
+      lookTag.classList.add('on');
+    } else {
+      lookTag.classList.remove('on');
+    }
 
     const t = sim.tripNow();
     const left = Math.round(sim.trip.arrive - t);
@@ -438,7 +447,7 @@ export class UI implements SimHooks {
       this.setPrompt('Paused', 'Press P or Resume to keep driving');
       el('prompt').hidden = false;
     } else if (this.sim.state === 'ready') {
-      this.setPrompt('Hold Gas or ↑ to drive', 'Your lane ends ahead: Z signals left, hold Q to check your blind spot, then merge. E signals right.');
+      this.setPrompt('Hold Gas or ↑ to drive', 'Your lane ends ahead: Z signals left, hold Q to look left, E to look right. X signals right.');
     } else {
       el('prompt').hidden = true;
     }
@@ -472,8 +481,10 @@ export class UI implements SimHooks {
     hold(el('b-gas'), 'gas');
     hold(el('b-brake'), 'brake');
     hold(el('b-look'), 'look');
+    hold(el('b-look-r'), 'lookRight');
     hold(el('b-left'), 'left');
     hold(el('b-right'), 'right');
+    el('b-signal-l').addEventListener('click', () => this.sim.setSignalLeft(!this.sim.signalLeft));
     el('b-signal').addEventListener('click', () => this.sim.setSignal(!this.sim.signal));
     el('b-signal-l').addEventListener('click', () => this.sim.setSignalLeft(!this.sim.signalLeft));
     el('b-lights').addEventListener('click', () => this.sim.setHeadlights(!this.sim.headlights));
@@ -487,18 +498,20 @@ export class UI implements SimHooks {
       gas: ['ArrowUp', 'w', 'W'],
       brake: ['ArrowDown', 's', 'S', ' '],
       look: ['q', 'Q'],
+      lookRight: ['e', 'E'],
       left: ['ArrowLeft', 'a', 'A'],
       right: ['ArrowRight', 'd', 'D'],
     };
-    const SIG = ['e', 'E'];
+    const SIG = ['x', 'X'];
+    const SIG_L = ['z', 'Z'];
     const typing = (e: KeyboardEvent) => e.target instanceof HTMLInputElement;
     window.addEventListener('keydown', (e) => {
       if (typing(e)) return;
       for (const k of Object.keys(KEYS) as (keyof typeof input)[]) {
         if (KEYS[k].includes(e.key)) { input[k] = true; e.preventDefault(); return; }
       }
-      if (SIG.includes(e.key)) { if (!e.repeat) this.sim.setSignal(!this.sim.signal); e.preventDefault(); }
-      else if ((e.key === 'z' || e.key === 'Z') && !e.repeat) this.sim.setSignalLeft(!this.sim.signalLeft);
+      if (SIG_L.includes(e.key)) { if (!e.repeat) this.sim.setSignalLeft(!this.sim.signalLeft); e.preventDefault(); }
+      else if (SIG.includes(e.key)) { if (!e.repeat) this.sim.setSignal(!this.sim.signal); e.preventDefault(); }
       else if (e.key === 'r' || e.key === 'R') this.restart();
       else if ((e.key === 'p' || e.key === 'P') && !e.repeat) this.setPause(!this.paused);
       else if ((e.key === 'm' || e.key === 'M') && !e.repeat) this.setSound(!this.audio.enabled);
@@ -507,7 +520,7 @@ export class UI implements SimHooks {
     window.addEventListener('keyup', (e) => {
       for (const k of Object.keys(KEYS) as (keyof typeof input)[]) if (KEYS[k].includes(e.key)) input[k] = false;
     });
-    window.addEventListener('blur', () => { input.gas = input.brake = input.look = input.left = input.right = false; });
+    window.addEventListener('blur', () => { input.gas = input.brake = input.look = input.lookRight = input.left = input.right = false; });
   }
 
   /* ---------- route map and trip times ---------- */
