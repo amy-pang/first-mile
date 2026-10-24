@@ -1,4 +1,5 @@
 /** Everything on the page outside the 3D view: controls, cabin instruments, route map, trip times, coach feed and the guide. */
+import type { AuthManager } from './auth';
 import { DEG, DEND, DS, DY, MPHF, ORD, RC, RH, R_IN, ROADS, RW, TAU, type Road } from './constants';
 import { bikeMultiplierAt } from './bike-density';
 import { CRASH_STATS } from './crash-stats';
@@ -50,6 +51,7 @@ export class UI implements SimHooks {
   private sim!: Simulation;
   private world!: World;
   private audio!: CarAudio;
+  private auth: AuthManager | null = null;
 
   paused = false;
   private planStart = 0;
@@ -69,6 +71,27 @@ export class UI implements SimHooks {
     this.buildGuide();
     const rules = el('score-rules');
     for (const c of CATEGORIES) rules.append(this.catRow(c.label, `${c.weight} pts`, 1, c.what));
+  }
+
+  setAuth(auth: AuthManager): void {
+    this.auth = auth;
+    auth.onUserChange = (user) => this.renderAuthBadge(user);
+    this.renderAuthBadge(auth.user);
+  }
+
+  private renderAuthBadge(user: import('@supabase/supabase-js').User | null): void {
+    const btn = el('auth-btn');
+    const emailDisplay = el('auth-email-display');
+    if (user) {
+      emailDisplay.textContent = user.email ?? '';
+      emailDisplay.hidden = false;
+      btn.textContent = 'Sign out';
+      btn.classList.add('signed-in');
+    } else {
+      emailDisplay.hidden = true;
+      btn.textContent = 'Sign in';
+      btn.classList.remove('signed-in');
+    }
   }
 
   attach(sim: Simulation, world: World, audio: CarAudio): void {
@@ -199,6 +222,27 @@ export class UI implements SimHooks {
     for (const c of this.sim.breakdown()) cats.append(this.catRow(c.label, `${c.got}/${c.weight}`, c.got / c.weight));
     el('r-body').textContent = r.body;
     this.renderDebrief();
+
+    const saveEl = el('run-save-status');
+    if (this.auth?.user) {
+      saveEl.textContent = 'Saving…';
+      saveEl.className = 'run-save-status';
+      saveEl.hidden = false;
+      void this.auth.saveRun(this.sim).then((err) => {
+        if (err) {
+          saveEl.textContent = `Could not save run: ${err}`;
+          saveEl.className = 'run-save-status error';
+        } else {
+          saveEl.textContent = 'Run saved';
+          saveEl.className = 'run-save-status saved';
+        }
+      });
+    } else {
+      saveEl.textContent = 'Sign in to save your results';
+      saveEl.className = 'run-save-status prompt';
+      saveEl.hidden = false;
+    }
+
     el('result').hidden = false;
   }
 

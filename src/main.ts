@@ -1,4 +1,5 @@
 import './style.css';
+import { AuthManager } from './auth';
 import { CarAudio } from './audio';
 import { Simulation } from './sim';
 import { UI } from './ui';
@@ -16,6 +17,83 @@ async function fontsReady(timeoutMs: number): Promise<void> {
   }
 }
 
+function wireAuthModal(auth: AuthManager): void {
+  const modal = document.getElementById('auth-modal')!;
+  const btn = document.getElementById('auth-btn')!;
+  const title = document.getElementById('auth-title')!;
+  const emailIn = document.getElementById('auth-input-email') as HTMLInputElement;
+  const passwordIn = document.getElementById('auth-input-password') as HTMLInputElement;
+  const errorEl = document.getElementById('auth-error')!;
+  const submitBtn = document.getElementById('auth-submit')!;
+  const toggleBtn = document.getElementById('auth-toggle')!;
+  const cancelBtn = document.getElementById('auth-cancel')!;
+
+  let mode: 'signin' | 'signup' = 'signin';
+
+  const open = () => {
+    emailIn.value = '';
+    passwordIn.value = '';
+    errorEl.hidden = true;
+    modal.hidden = false;
+    emailIn.focus();
+  };
+  const close = () => { modal.hidden = true; };
+
+  const setMode = (m: 'signin' | 'signup') => {
+    mode = m;
+    title.textContent = m === 'signin' ? 'Sign in' : 'Sign up';
+    submitBtn.textContent = m === 'signin' ? 'Sign in' : 'Sign up';
+    toggleBtn.textContent = m === 'signin' ? 'No account? Sign up' : 'Already have an account? Sign in';
+    errorEl.hidden = true;
+  };
+
+  btn.addEventListener('click', () => {
+    if (auth.user) {
+      void auth.signOut();
+    } else {
+      setMode('signin');
+      open();
+    }
+  });
+
+  toggleBtn.addEventListener('click', () => setMode(mode === 'signin' ? 'signup' : 'signin'));
+  cancelBtn.addEventListener('click', close);
+  modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
+
+  submitBtn.addEventListener('click', async () => {
+    const email = emailIn.value.trim();
+    const password = passwordIn.value;
+    if (!email || !password) {
+      errorEl.textContent = 'Enter your email and password.';
+      errorEl.hidden = false;
+      return;
+    }
+    submitBtn.setAttribute('disabled', '');
+    const err = mode === 'signin'
+      ? await auth.signIn(email, password)
+      : await auth.signUp(email, password);
+    submitBtn.removeAttribute('disabled');
+    if (err) {
+      errorEl.textContent = err;
+      errorEl.hidden = false;
+    } else {
+      if (mode === 'signup') {
+        errorEl.textContent = 'Check your email to confirm your account, then sign in.';
+        errorEl.className = 'auth-error';
+        errorEl.style.color = 'var(--ok)';
+        errorEl.hidden = false;
+      } else {
+        close();
+      }
+    }
+  });
+
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !modal.hidden) close();
+    if (e.key === 'Enter' && !modal.hidden) submitBtn.click();
+  });
+}
+
 function showFailure(stage: HTMLElement): void {
   const f = document.createElement('div');
   f.className = 'fail';
@@ -26,6 +104,12 @@ function showFailure(stage: HTMLElement): void {
 async function boot(): Promise<void> {
   const stage = document.getElementById('stage')!;
   const ui = new UI();
+
+  const auth = new AuthManager();
+  await auth.init();
+  ui.setAuth(auth);
+  wireAuthModal(auth);
+
   await fontsReady(1800);
   ui.fillGuideImages();
 
