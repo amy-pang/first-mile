@@ -326,8 +326,10 @@ export class UI implements SimHooks {
     el('zone').textContent = zoneName;
     el('zone-sub').textContent = zone === 'rotary' ? 'Advisory 20 mph' : 'Limit 25 mph';
     const blink = now % 800 < 440;
-    el('ind-r').setAttribute('fill', sim.signal && blink ? '#3BE07A' : '#2A3B30');
-    el('ind-l').setAttribute('fill', sim.signalLeft && blink ? '#3BE07A' : '#2A3B30');
+    el('ind-r').setAttribute('fill', sim.signal && blink ? '#F2B705' : '#2A3B30');
+    el('ind-l').setAttribute('fill', sim.signalLeft && blink ? '#F2B705' : '#2A3B30');
+    el('sig-hud-l').classList.toggle('on', sim.signalLeft && blink);
+    el('sig-hud-r').classList.toggle('on', sim.signal && blink);
     const lookTag = el('look-tag');
     if (sim.input.lookRight) {
       lookTag.textContent = 'Checking right ▸';

@@ -90,6 +90,10 @@ h1 .plate{display:inline-block; margin-left:.06em; background:var(--guide); colo
 .prompt span{font-size:clamp(11px,1.4cqi,13px)}
 .look-tag{position:absolute; left:50%; top:16%; transform:translateX(-50%); background:var(--hud); color:var(--cab-ink); font-family:var(--display); font-weight:800; font-size:clamp(11px,1.5cqi,15px); border-radius:999px; padding:4px 12px 2px; opacity:0; transition:opacity .15s}
 .look-tag.on{opacity:1}
+.sig-hud{position:absolute; bottom:14%; font-family:var(--display); font-weight:900; font-size:clamp(13px,1.9cqi,20px); color:var(--amber); background:rgba(12,15,18,.72); border-radius:999px; padding:5px 14px 3px; opacity:0; transition:opacity .07s; pointer-events:none}
+.sig-hud.left{left:7%}
+.sig-hud.right{right:7%}
+.sig-hud.on{opacity:1}
 .fail{position:absolute; inset:0; display:grid; place-items:center; padding:20px; text-align:center; color:var(--fg)}
 
 .result{position:absolute; inset:0; display:grid; place-items:center; background:var(--scrim); padding:16px; overflow:auto}
