@@ -87,7 +87,7 @@ export const CATEGORIES: readonly { key: Category; label: string; weight: number
   { key: 'following', label: 'Following distance', weight: 15, what: 'At least a two-second gap to the car ahead (three in rain)' },
   { key: 'lane', label: 'Lane position and steering', weight: 15, what: 'Holding your lane, staying on the pavement, steering smoothly' },
   { key: 'signals', label: 'Signals and checks', weight: 12, what: 'Looking left before entering, signaling your exit, headlights in rain' },
-  { key: 'flow', label: 'Rotary flow', weight: 8, what: 'Keeping moving in the rotary and making room for an ambulance' },
+  { key: 'flow', label: 'Traffic flow', weight: 8, what: 'Keeping moving with traffic and making way for emergency vehicles' },
 ];
 /** Points lost per second at full severity, for the continuously measured categories. */
 const RATE = { speed: 2, following: 1.5, lane: 1.5 } as const;
