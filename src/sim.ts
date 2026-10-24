@@ -163,7 +163,7 @@ export class Simulation {
   trail: Pt[] = [];
   /** Front-wheel angle in radians; negative steers left. */
   steer = 0;
-  readonly input = { gas: false, brake: false, look: false, left: false, right: false };
+  readonly input = { gas: false, brake: false, look: false, lookRight: false, left: false, right: false };
 
   private nextId = 1;
   private spawnT = 0;

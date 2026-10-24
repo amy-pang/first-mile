@@ -89,6 +89,7 @@ export class World {
     cabin: new THREE.BoxGeometry(2.3, 0.62, 1.62),
     wheel: new THREE.CylinderGeometry(0.34, 0.34, 0.26, 10).rotateX(Math.PI / 2),
     lamp: new THREE.BoxGeometry(0.06, 0.18, 0.42),
+    signal: new THREE.BoxGeometry(0.06, 0.14, 0.3),
   };
   private readonly carMat = {
     glass: new THREE.MeshLambertMaterial({ color: 0x1e262e }),
@@ -96,6 +97,8 @@ export class World {
     tailOn: new THREE.MeshBasicMaterial({ color: 0xff2a1f }),
     tailOff: new THREE.MeshBasicMaterial({ color: 0x6e1a16 }),
     head: new THREE.MeshBasicMaterial({ color: 0xfff3cf }),
+    signalOn: new THREE.MeshBasicMaterial({ color: 0xff9400 }),
+    signalOff: new THREE.MeshBasicMaterial({ color: 0x5a3500 }),
     redOn: new THREE.MeshBasicMaterial({ color: 0xff2020 }),
     redOff: new THREE.MeshBasicMaterial({ color: 0x5a1010 }),
     blueOn: new THREE.MeshBasicMaterial({ color: 0x2a6bff }),
@@ -494,6 +497,16 @@ export class World {
       g.add(h);
     }
     g.userData.tails = tails;
+    const signals: { right: THREE.Mesh[]; left: THREE.Mesh[] } = { right: [], left: [] };
+    for (const x of [-2.21, 2.21] as const) {
+      for (const [side, z] of [['right', 0.88], ['left', -0.88]] as [string, number][]) {
+        const s = new THREE.Mesh(this.carGeo.signal, this.carMat.signalOff);
+        s.position.set(x, 0.85, z);
+        g.add(s);
+        (signals as Record<string, THREE.Mesh[]>)[side].push(s);
+      }
+    }
+    g.userData.signals = signals;
     if (ems) {
       // Ambulance: red side stripe and a light bar with one red and one blue lamp.
       const stripe = new THREE.Mesh(this.stripeGeo, this.carMat.stripe);
@@ -547,6 +560,14 @@ export class World {
       mesh.rotation.y = -c.pose.h;
       const lamp = c.braking ? this.carMat.tailOn : this.carMat.tailOff;
       for (const t of mesh.userData.tails as THREE.Mesh[]) t.material = lamp;
+      const sigs = mesh.userData.signals as { right: THREE.Mesh[]; left: THREE.Mesh[] } | undefined;
+      if (sigs) {
+        const nearExit = c.s > c.path.sExit - 20 && c.s < c.path.sOff + 5;
+        const flip = Math.floor(performance.now() / 500) % 2 === 0;
+        const sigOn = nearExit && flip ? this.carMat.signalOn : this.carMat.signalOff;
+        for (const m of sigs.right) m.material = sigOn;
+        for (const m of sigs.left) m.material = this.carMat.signalOff;
+      }
       const bars = mesh.userData.bars as THREE.Mesh[] | undefined;
       if (bars) {
         // Alternate red and blue about four times a second.
@@ -586,7 +607,7 @@ export class World {
     const steerTarget = Math.max(-180, Math.min(180, (sim.steer * 180 * 3) / Math.PI));
     cam.steer += (steerTarget - cam.steer) * Math.min(1, dt * 6);
     // Holding Look turns your head far enough to see over your left shoulder into the blind spot.
-    cam.yaw += ((sim.input.look ? -1.3 : 0) - cam.yaw) * Math.min(1, dt * 7);
+    cam.yaw += ((sim.input.look ? -1.3 : sim.input.lookRight ? 1.05 : 0) - cam.yaw) * Math.min(1, dt * 7);
 
     const lookH = cam.h + cam.yaw;
     const left = cam.h - Math.PI / 2;
