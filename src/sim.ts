@@ -6,6 +6,7 @@ import {
 import { add, dist, N, pickOne, rand, roadPt, U } from './math';
 import { getPath, poseAt, type Path } from './path';
 import type { SignKey } from './signs';
+import { pedSpawnInterval } from './bike-density';
 import { conditionsFor, fmtT, TRAFFIC_LABEL, type Traffic, type Trip, type Weather } from './trip';
 
 export type CoachKind = 'good' | 'warn' | 'bad' | 'info' | 'sign';
@@ -300,7 +301,9 @@ export class Simulation {
     this.pedT -= dt;
     if (this.pedT <= 0) {
       this.spawnPed();
-      this.pedT = this.trip.phase === 'night' ? rand(9, 15) : this.traffic === 'rush' ? rand(3.5, 6.5) : rand(5, 9);
+      const [pedLo, pedHi] = pedSpawnInterval(this.tripNow());
+      const nightFactor = this.trip.phase === 'night' ? 2.5 : 1;
+      this.pedT = rand(pedLo * nightFactor, pedHi * nightFactor);
     }
     if (this.state === 'driving') this.tripSec += dt;
     this.updatePeds(dt);
