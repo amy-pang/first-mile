@@ -13,6 +13,8 @@ export interface DriveRun {
   signals_checks: number;
   blind_spots: number;
   additional_flags: string;
+  /** Whether the driver reached their assigned exit. Older rows may not have this. */
+  reached_end?: boolean | null;
 }
 
 export class AuthManager {
@@ -47,7 +49,7 @@ export class AuthManager {
     if (!this.user) return { runs: [], error: null };
     const { data, error } = await supabase
       .from('drives')
-      .select('id, created_at, overall_score, right_of_way, speed_control, following_dist, lane_pos_steer, signals_checks, blind_spots, additional_flags')
+      .select('id, created_at, overall_score, right_of_way, speed_control, following_dist, lane_pos_steer, signals_checks, blind_spots, additional_flags, reached_end')
       .order('created_at', { ascending: false });
     return { runs: (data ?? []) as DriveRun[], error: error?.message ?? null };
   }
@@ -57,6 +59,8 @@ export class AuthManager {
     const bd = sim.breakdown();
     const get = (key: string) => bd.find((c) => c.key === key)?.got ?? 0;
     const flags = sim.marks.map((m) => m.title).join(', ');
+    // "Reached end" means the driver drove out an exit (state 'done'); a crash leaves state 'crashed'.
+    const reachedEnd = sim.state === 'done';
     const { error } = await supabase.from('drives').insert({
       overall_score: sim.score,
       right_of_way: get('yield'),
@@ -66,6 +70,7 @@ export class AuthManager {
       signals_checks: get('signals'),
       blind_spots: get('blind'),
       additional_flags: flags,
+      reached_end: reachedEnd,
     });
     return error?.message ?? null;
   }
