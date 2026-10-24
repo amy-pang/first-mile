@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>FirstMile</title>
-  <meta name="description" content="In-car rotary driving simulator for newcomers to Massachusetts.">
+  <meta name="description" content="FirstMile advocates for road safety: it maps real Cambridge crash hotspots and uses an in-car rotary driving simulator to teach the rules and habits that prevent crashes.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Overpass:wght@400;600;800;900&family=Overpass+Mono:wght@500;700&display=swap">
@@ -12,15 +12,24 @@
 <body>
 <div class="wrap">
   <header>
-    <div class="eyebrow">Hackachusetts 2026 · Civic track prototype</div>
-    <h1>First<span class="plate">Mile</span></h1>
-    <p class="tagline">Your first mile on Massachusetts roads. Sit behind the wheel, approach a rotary, learn each sign as you pass it, and get coached on the rules newcomers miss.</p>
+    <div class="header-row">
+      <div>
+        <div class="eyebrow">Hackachusetts 2026 · Civic track prototype</div>
+        <h1>First<span class="plate">Mile</span></h1>
+        <p class="tagline">Road safety starts with the first mile. FirstMile maps real Cambridge crash hotspots to show where driving goes wrong — then puts you behind the wheel in a simulation that coaches the rotary rules, signs, and habits that prevent those crashes.</p>
+      </div>
+      <div class="auth-area">
+        <span class="auth-email" id="auth-email-display" hidden></span>
+        <button class="auth-btn" id="auth-btn" type="button">Sign in</button>
+      </div>
+    </div>
   </header>
 
   <nav class="tab-bar" role="tablist" aria-label="App sections">
-    <button role="tab" aria-selected="true"  data-tab="drive" aria-controls="tab-drive">Drive</button>
-    <button role="tab" aria-selected="false" data-tab="map"   aria-controls="tab-map">Crash Map</button>
     <button role="tab" aria-selected="false" data-tab="learn" aria-controls="tab-learn">Before You Drive</button>
+    <button role="tab" aria-selected="true"  data-tab="drive" aria-controls="tab-drive">Drive</button>
+    <button role="tab" aria-selected="false" data-tab="runs"  aria-controls="tab-runs">My Runs</button>
+    <button role="tab" aria-selected="false" data-tab="map"   aria-controls="tab-map">Crash Map</button>
     <a class="tab-link" href="./real.html">Real Route: Harvard → MIT</a>
   </nav>
 
@@ -73,19 +82,22 @@
           <div class="dash-clock" id="dash-clock"><small>TRIP CLOCK</small><b id="dc-time">8:30 AM</b><span id="dc-sub">Arrive by 9:00 AM</span></div>
         </div>
         <div class="look-tag" id="look-tag">◂ Checking left</div>
+        <div class="sig-hud left" id="sig-hud-l">◀ Signal</div>
+        <div class="sig-hud right" id="sig-hud-r">Signal ▶</div>
         <div class="card-pop" id="card-pop"><img id="cp-img" alt=""><div><small>Sign ahead</small><b id="cp-name">Sign</b><p id="cp-text"></p></div></div>
         <div class="toast" id="toast" role="status"></div>
         <div class="prompt" id="prompt"><b id="prompt-title">Hold Gas or ↑ to drive</b><span id="prompt-sub">Steer with ← →. Hold Q to look left, E to signal</span></div>
         <div class="result" id="result" hidden>
           <div class="result-card" id="result-card">
             <h2 id="r-title">Passed</h2>
-            <div class="big" id="r-score">Score 100 / 100</div>
+            <div class="big" id="r-score">Driving quality 100 / 100</div>
             <p id="r-body">Ready for the real thing.</p>
             <ul class="cats" id="r-cats" aria-label="Score by category"></ul>
             <div class="debrief">
               <svg class="map" id="r-map" viewBox="0 0 300 300" role="img" aria-label="Map of the route you drove, with numbered spots where rules were broken"></svg>
               <ol class="marks" id="r-marks"></ol>
             </div>
+            <p class="run-save-status" id="run-save-status" hidden></p>
             <button class="btn gas" id="r-again" type="button">Drive again</button>
           </div>
         </div>
@@ -132,7 +144,7 @@
 
       <section class="card ctrl" aria-label="Driving controls">
         <div class="dash">
-          <div class="score"><span class="lbl">Score</span><b id="score">100</b></div>
+          <div class="score"><span class="lbl">Driving Quality</span><b id="score">100</b></div>
           <div class="zone"><b id="zone">Approach</b><span id="zone-sub">Limit 25 mph</span></div>
         </div>
         <div class="pad">
@@ -175,8 +187,11 @@
       <div class="map-main">
         <div class="eyebrow">Real Cambridge data · 17,230 crash records</div>
         <h2 class="map-title">Crash Hotspots Near the Practice Rotary</h2>
-        <p class="map-desc">Historical crash records from Cambridge Police, plotted by location. The yellow pin marks where the practice rotary is set. Use the filters to isolate cyclist or pedestrian incidents.</p>
-        <canvas id="city-map" width="840" height="540" aria-label="Map of Cambridge showing crash hotspots near the practice rotary area"></canvas>
+        <p class="map-desc">Historical crash records from Cambridge Police, plotted by location over the city's main roads. The yellow pin marks where the practice rotary is set. Use the filters to isolate cyclist or pedestrian incidents, and hover anywhere on the map to see the crash count for that area.</p>
+        <div class="map-canvas-wrap">
+          <canvas id="city-map" width="840" height="540" aria-label="Map of Cambridge showing crash hotspots near the practice rotary area"></canvas>
+          <div class="map-tooltip" id="map-tooltip" hidden></div>
+        </div>
         <div class="map-layer-toggle" role="group" aria-label="Heatmap layer">
           <button type="button" id="layer-all" aria-pressed="true">All crashes</button>
           <button type="button" id="layer-cyc" aria-pressed="false">Cyclists</button>
@@ -186,7 +201,7 @@
       <aside class="map-sidebar">
         <div class="eyebrow">By the numbers</div>
         <div class="map-stats" id="map-stats"></div>
-        <p class="map-source">Source: Cambridge Police crash records. Coordinates available for 8,877 of 17,230 records; remainder plotted without location.</p>
+        <p class="map-source">Sources: Cambridge Police crash records (8,877 of 17,230 geolocated); street centerlines from the City of Cambridge open data portal.</p>
       </aside>
     </div>
   </div>
@@ -236,6 +251,22 @@
     </section>
   </div>
 
+  <div class="tab-panel" id="tab-runs" hidden>
+    <div class="runs-page" id="runs-page"></div>
+  </div>
+
+</div>
+
+<div class="auth-modal" id="auth-modal" hidden>
+  <div class="auth-card">
+    <h2 id="auth-title">Sign in</h2>
+    <input id="auth-input-email" type="email" placeholder="Email" autocomplete="email">
+    <input id="auth-input-password" type="password" placeholder="Password" autocomplete="current-password">
+    <p class="auth-error" id="auth-error" hidden></p>
+    <button class="btn-primary" id="auth-submit" type="button">Sign in</button>
+    <button class="link" id="auth-toggle" type="button">No account? Sign up</button>
+    <button class="link auth-cancel" id="auth-cancel" type="button">Cancel</button>
+  </div>
 </div>
 
 <script type="module" src="/src/main.ts"></script>

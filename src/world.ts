@@ -133,9 +133,34 @@ export class World {
   };
   private readonly pedBodyMats = new Map<string, THREE.MeshLambertMaterial>();
 
+  private contextLost = false;
+
   constructor(canvas: HTMLCanvasElement, private readonly stage: HTMLElement, mirrorEl: HTMLElement, sideEls: [HTMLElement, HTMLElement]) {
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    // Fail fast with a clear message if the browser/GPU can't give us a WebGL context
+    // (commonly: too many live contexts across tabs, or hardware acceleration disabled).
+    // Probe on a throwaway canvas so we don't lock the real canvas to a context type,
+    // then let three.js create the real context. This guarantees the constructor throws
+    // cleanly instead of returning a broken renderer that throws on every frame.
+    const probeCanvas = document.createElement('canvas');
+    const probe = (probeCanvas.getContext('webgl2') || probeCanvas.getContext('webgl') || probeCanvas.getContext('experimental-webgl'));
+    if (!probe) {
+      throw new Error('WebGL unavailable: the browser could not create a WebGL context.');
+    }
+
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+
+    // A WebGL context can be lost (GPU reset, too many live contexts across tabs, backgrounding).
+    // Track it so render() can skip work instead of throwing and wedging the page.
+    canvas.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault();
+      this.contextLost = true;
+      console.warn('WebGL context lost');
+    });
+    canvas.addEventListener('webglcontextrestored', () => {
+      this.contextLost = false;
+      console.warn('WebGL context restored');
+    });
     const rt = () => new THREE.WebGLRenderTarget(4, 4);
     this.mirrors = [
       { el: mirrorEl, cam: this.mirrorCam, rt: rt() },
@@ -696,6 +721,8 @@ export class World {
     const w = this.stage.clientWidth;
     const h = this.stage.clientHeight;
     const r = this.renderer;
+    // Nothing to draw if the context is gone or the stage is hidden/zero-size (e.g. another tab is open).
+    if (this.contextLost || r.getContext().isContextLost() || w <= 0 || h <= 0) return;
     r.setScissorTest(false);
     r.setViewport(0, 0, w, h);
     r.render(this.scene, this.camera);

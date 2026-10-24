@@ -1,4 +1,5 @@
 /** Everything on the page outside the 3D view: controls, cabin instruments, route map, trip times, coach feed and the guide. */
+import type { AuthManager } from './auth';
 import { DEG, DEND, DS, DY, MPHF, ORD, RC, RH, R_IN, ROADS, RW, TAU, type Road } from './constants';
 import { bikeMultiplierAt } from './bike-density';
 import { CRASH_STATS } from './crash-stats';
@@ -18,6 +19,35 @@ interface CrashGrid {
   cyclist: number[];
   pedestrian: number[];
 }
+
+/** A street polyline from public/streets.json. Points are [lon, lat] (GeoJSON order). */
+interface StreetRoad {
+  label: string | null;
+  major: boolean;
+  pts: [number, number][];
+}
+
+/**
+ * Cambridge road network for the crash map, as continuous [lat, lon] polylines.
+ * Hand-traced to connect into a legible network (arteries that span and cross the view),
+ * not surveyed GPS — enough to orient the heatmap against the real street grid.
+ */
+const CITY_ROADS: { label?: string; major: boolean; pts: [number, number][] }[] = [
+  // Major arteries, each a single continuous run across the map.
+  { label: 'Massachusetts Ave', major: true, pts: [[42.398, -71.126], [42.389, -71.118], [42.379, -71.113], [42.372, -71.108], [42.365, -71.103], [42.359, -71.094], [42.356, -71.085]] },
+  { label: 'Memorial Dr', major: true, pts: [[42.360, -71.130], [42.357, -71.118], [42.355, -71.105], [42.355, -71.092], [42.357, -71.081], [42.361, -71.073]] },
+  { label: 'Broadway', major: true, pts: [[42.372, -71.110], [42.368, -71.100], [42.365, -71.091], [42.363, -71.083]] },
+  { label: 'Cambridge St', major: true, pts: [[42.375, -71.110], [42.373, -71.099], [42.372, -71.088], [42.371, -71.079]] },
+  { label: 'Concord Ave', major: true, pts: [[42.391, -71.156], [42.386, -71.140], [42.381, -71.126], [42.377, -71.114]] },
+  { label: 'Alewife Brook Pkwy', major: true, pts: [[42.401, -71.148], [42.396, -71.144], [42.391, -71.141], [42.385, -71.142], [42.380, -71.146]] },
+  // Cross streets that connect the arteries into a grid.
+  { label: 'Prospect St', major: false, pts: [[42.374, -71.104], [42.368, -71.100], [42.361, -71.097], [42.356, -71.095]] },
+  { label: 'Hampshire St', major: false, pts: [[42.376, -71.104], [42.371, -71.096], [42.366, -71.089]] },
+  { label: 'River St', major: false, pts: [[42.366, -71.103], [42.360, -71.106], [42.355, -71.108]] },
+  { label: 'JFK St', major: false, pts: [[42.373, -71.121], [42.369, -71.120], [42.364, -71.119]] },
+  { major: false, pts: [[42.388, -71.130], [42.381, -71.121], [42.374, -71.112]] },
+  { major: false, pts: [[42.384, -71.118], [42.378, -71.108], [42.372, -71.099]] },
+];
 
 const el = <T extends HTMLElement = HTMLElement>(id: string): T => {
   const e = document.getElementById(id);
@@ -50,6 +80,7 @@ export class UI implements SimHooks {
   private sim!: Simulation;
   private world!: World;
   private audio!: CarAudio;
+  private auth: AuthManager | null = null;
 
   paused = false;
   private planStart = 0;
@@ -64,11 +95,38 @@ export class UI implements SimHooks {
   private readonly mctx = this.mini.getContext('2d')!;
   private crashGrid: CrashGrid | null = null;
   private mapLayer: 'all' | 'cyclist' | 'pedestrian' = 'all';
+  private mapHover: { r: number; c: number } | null = null;
+  private streets: StreetRoad[] = [];
 
   constructor() {
     this.buildGuide();
     const rules = el('score-rules');
     for (const c of CATEGORIES) rules.append(this.catRow(c.label, `${c.weight} pts`, 1, c.what));
+  }
+
+  setAuth(auth: AuthManager): void {
+    this.auth = auth;
+    auth.onUserChange = (user) => {
+      this.renderAuthBadge(user);
+      const runsPanel = document.getElementById('tab-runs');
+      if (runsPanel && !runsPanel.hidden) void this.loadAndRenderRuns();
+    };
+    this.renderAuthBadge(auth.user);
+  }
+
+  private renderAuthBadge(user: import('@supabase/supabase-js').User | null): void {
+    const btn = el('auth-btn');
+    const emailDisplay = el('auth-email-display');
+    if (user) {
+      emailDisplay.textContent = user.email ?? '';
+      emailDisplay.hidden = false;
+      btn.textContent = 'Sign out';
+      btn.classList.add('signed-in');
+    } else {
+      emailDisplay.hidden = true;
+      btn.textContent = 'Sign in';
+      btn.classList.remove('signed-in');
+    }
   }
 
   attach(sim: Simulation, world: World, audio: CarAudio): void {
@@ -193,7 +251,7 @@ export class UI implements SimHooks {
   result(r: RunResult): void {
     el('result-card').className = `result-card ${r.pass ? 'pass' : 'fail-card'}`;
     el('r-title').textContent = r.title;
-    el('r-score').textContent = `Score ${this.sim.score} / 100 · top speed ${Math.round(this.sim.topMph)} mph`;
+    el('r-score').textContent = `Driving quality ${this.sim.score} / 100 · top speed ${Math.round(this.sim.topMph)} mph`;
     const cats = el('r-cats');
     cats.innerHTML = '';
     for (const c of this.sim.breakdown()) {
@@ -201,6 +259,26 @@ export class UI implements SimHooks {
     }
     el('r-body').textContent = r.body;
     this.renderDebrief();
+
+    const saveEl = el('run-save-status');
+    if (this.auth?.user) {
+      // Save silently in the background; only surface a message if it fails.
+      saveEl.textContent = '';
+      saveEl.className = 'run-save-status';
+      saveEl.hidden = true;
+      void this.auth.saveRun(this.sim).then((err) => {
+        if (err) {
+          saveEl.textContent = `Could not save run: ${err}`;
+          saveEl.className = 'run-save-status error';
+          saveEl.hidden = false;
+        }
+      });
+    } else {
+      saveEl.textContent = 'Sign in to save your results';
+      saveEl.className = 'run-save-status prompt';
+      saveEl.hidden = false;
+    }
+
     el('result').hidden = false;
   }
 
@@ -328,8 +406,10 @@ export class UI implements SimHooks {
     el('zone').textContent = zoneName;
     el('zone-sub').textContent = zone === 'rotary' ? 'Advisory 20 mph' : 'Limit 25 mph';
     const blink = now % 800 < 440;
-    el('ind-r').setAttribute('fill', sim.signal && blink ? '#3BE07A' : '#2A3B30');
-    el('ind-l').setAttribute('fill', sim.signalLeft && blink ? '#3BE07A' : '#2A3B30');
+    el('ind-r').setAttribute('fill', sim.signal && blink ? '#F2B705' : '#2A3B30');
+    el('ind-l').setAttribute('fill', sim.signalLeft && blink ? '#F2B705' : '#2A3B30');
+    el('sig-hud-l').classList.toggle('on', sim.signalLeft && blink);
+    el('sig-hud-r').classList.toggle('on', sim.signal && blink);
     const lookTag = el('look-tag');
     if (sim.input.lookRight) {
       lookTag.textContent = 'Checking right ▸';
@@ -804,6 +884,15 @@ export class UI implements SimHooks {
     } catch {
       /* no crash data; map still renders without heatmap */
     }
+    try {
+      const res = await fetch('./streets.json');
+      if (res.ok) {
+        const data = await res.json() as { roads: StreetRoad[] };
+        this.streets = data.roads ?? [];
+      }
+    } catch {
+      /* no street data; map falls back to the built-in sketch roads */
+    }
   }
 
   drawCityMap(layer: 'all' | 'cyclist' | 'pedestrian' = this.mapLayer): void {
@@ -828,11 +917,64 @@ export class UI implements SimHooks {
     g.fillStyle = '#0F1A14';
     g.fillRect(0, 0, W, H);
 
-    // Heatmap
+    // Faint reference grid so positions read as a map, not a void.
+    g.strokeStyle = 'rgba(255,255,255,0.035)';
+    g.lineWidth = 1;
+    for (let i = 1; i < 8; i++) {
+      const x = (W / 8) * i;
+      g.beginPath(); g.moveTo(x, 0); g.lineTo(x, H); g.stroke();
+    }
+    for (let i = 1; i < 5; i++) {
+      const y = (H / 5) * i;
+      g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke();
+    }
+
+    // Roads: prefer the real Cambridge street centerlines (public/streets.json,
+    // points in [lon, lat]); fall back to the built-in sketch (in [lat, lon]).
+    // Each road is projected to canvas space once, then drawn as a dark casing +
+    // lighter centre line so it reads as a road rather than a stray stroke.
+    type ProjRoad = { label: string | null; major: boolean; path: [number, number][] };
+    const roadPaths: ProjRoad[] = this.streets.length
+      ? this.streets.map((r) => ({ label: r.label, major: r.major, path: r.pts.map(([lon, lat]) => proj(lat, lon)) }))
+      : CITY_ROADS.map((r) => ({ label: r.label ?? null, major: r.major, path: r.pts.map(([lat, lon]) => proj(lat, lon)) }));
+
+    const tracePath = (path: [number, number][]) => {
+      g.beginPath();
+      path.forEach(([x, y], i) => { if (i === 0) g.moveTo(x, y); else g.lineTo(x, y); });
+    };
+    g.lineJoin = 'round'; g.lineCap = 'round';
+    // casing (minor first, then major on top) — subtle, just enough to separate roads from bg
+    g.strokeStyle = 'rgba(0,0,0,0.35)';
+    for (const r of roadPaths) { g.lineWidth = r.major ? 3.5 : 2; tracePath(r.path); g.stroke(); }
+    // centre line — muted grey-teal so roads sit back and the heatmap reads on top
+    for (const r of roadPaths) {
+      tracePath(r.path);
+      g.strokeStyle = r.major ? 'rgba(96,116,108,0.6)' : 'rgba(70,88,80,0.38)';
+      g.lineWidth = r.major ? 1.8 : 0.9;
+      g.stroke();
+    }
+    // Labels for major named arteries, de-duplicated so each street name prints once.
+    g.font = '600 10px Overpass, sans-serif';
+    g.textAlign = 'left';
+    const labelled = new Set<string>();
+    for (const r of roadPaths) {
+      if (!r.label || !r.major || labelled.has(r.label)) continue;
+      const mid = r.path[Math.floor(r.path.length / 2)];
+      if (!mid) continue;
+      const [x, y] = mid;
+      if (x < 2 || x > W - 2 || y < 8 || y > H - 2) continue;
+      labelled.add(r.label);
+      g.fillStyle = 'rgba(0,0,0,0.55)';
+      g.fillText(r.label, x + 5, y - 3);
+      g.fillStyle = 'rgba(150,166,159,0.75)';
+      g.fillText(r.label, x + 4, y - 4);
+    }
+
+    // Heatmap: one filled circle per grid cell, sized and shaded by crash count.
     const grid = this.crashGrid;
     if (grid) {
       const data = layer === 'cyclist' ? grid.cyclist : layer === 'pedestrian' ? grid.pedestrian : grid.all;
-      const maxVal = Math.max(...data.filter((v) => v > 0));
+      const maxVal = Math.max(1, ...data.filter((v) => v > 0));
       const GRID = grid.grid;
       const cellLat = (LAT_MAX - LAT_MIN) / GRID;
       const cellLon = (LON_MAX - LON_MIN) / GRID;
@@ -856,6 +998,31 @@ export class UI implements SimHooks {
           g.fillStyle = color;
           g.fill();
         }
+      }
+
+      // Hovered cell: outline so the tooltip has a clear anchor.
+      if (this.mapHover) {
+        const { r, c } = this.mapHover;
+        const lat = LAT_MIN + (r + 0.5) * cellLat;
+        const lon = LON_MIN + (c + 0.5) * cellLon;
+        const [x, y] = proj(lat, lon);
+        g.strokeStyle = '#FFFFFF';
+        g.lineWidth = 1.5;
+        g.beginPath();
+        g.arc(x, y, 8, 0, Math.PI * 2);
+        g.stroke();
+      }
+
+      // Re-trace the major roads faintly over the heat so the network stays visible
+      // even where dense hotspot cells would otherwise bury it.
+      g.strokeStyle = 'rgba(170,186,179,0.14)';
+      g.lineWidth = 1;
+      g.lineJoin = 'round'; g.lineCap = 'round';
+      for (const r of roadPaths) {
+        if (!r.major) continue;
+        g.beginPath();
+        r.path.forEach(([x, y], i) => { if (i === 0) g.moveTo(x, y); else g.lineTo(x, y); });
+        g.stroke();
       }
     }
 
@@ -906,6 +1073,154 @@ export class UI implements SimHooks {
         }
       });
     }
+    this.bindMapHover();
+  }
+
+  /** Hover over the crash map to read per-area crash counts. */
+  private bindMapHover(): void {
+    const canvas = document.getElementById('city-map') as HTMLCanvasElement | null;
+    const tip = document.getElementById('map-tooltip');
+    if (!canvas || !tip) return;
+
+    const LAT_MIN = 42.353, LAT_MAX = 42.403, LON_MIN = -71.159, LON_MAX = -71.069;
+
+    const onMove = (ev: MouseEvent) => {
+      const grid = this.crashGrid;
+      if (!grid) return;
+      const rect = canvas.getBoundingClientRect();
+      // Map the pointer from CSS pixels into the canvas's internal coordinate space.
+      const cx = (ev.clientX - rect.left) / rect.width * canvas.width;
+      const cy = (ev.clientY - rect.top) / rect.height * canvas.height;
+      const lon = LON_MIN + cx / canvas.width * (LON_MAX - LON_MIN);
+      const lat = LAT_MIN + (1 - cy / canvas.height) * (LAT_MAX - LAT_MIN);
+      const GRID = grid.grid;
+      const c = Math.floor((lon - LON_MIN) / (LON_MAX - LON_MIN) * GRID);
+      const r = Math.floor((lat - LAT_MIN) / (LAT_MAX - LAT_MIN) * GRID);
+      if (r < 0 || r >= GRID || c < 0 || c >= GRID) { this.clearMapHover(); return; }
+
+      const all = grid.all[r * GRID + c] ?? 0;
+      const cyc = grid.cyclist[r * GRID + c] ?? 0;
+      const ped = grid.pedestrian[r * GRID + c] ?? 0;
+
+      const changed = !this.mapHover || this.mapHover.r !== r || this.mapHover.c !== c;
+      if (changed) { this.mapHover = { r, c }; this.drawCityMap(this.mapLayer); }
+
+      if (all === 0 && cyc === 0 && ped === 0) {
+        tip.hidden = true;
+        return;
+      }
+      tip.innerHTML = `<b>${all}</b> crash${all === 1 ? '' : 'es'} here`
+        + `<div class="mt-sub">${cyc} cyclist · ${ped} pedestrian</div>`;
+      tip.hidden = false;
+      // Position relative to the wrapper (tooltip is absolutely positioned within it).
+      tip.style.left = `${cx / canvas.width * rect.width}px`;
+      tip.style.top = `${cy / canvas.height * rect.height}px`;
+    };
+
+    canvas.addEventListener('mousemove', onMove);
+    canvas.addEventListener('mouseleave', () => this.clearMapHover());
+  }
+
+  private clearMapHover(): void {
+    const tip = document.getElementById('map-tooltip');
+    if (tip) tip.hidden = true;
+    if (this.mapHover) { this.mapHover = null; this.drawCityMap(this.mapLayer); }
+  }
+
+  /* ---------- runs history tab ---------- */
+
+  async loadAndRenderRuns(): Promise<void> {
+    const host = el('runs-page');
+    host.innerHTML = '';
+
+    if (!this.auth?.user) {
+      host.innerHTML = '<p class="runs-empty">Sign in to see your drive history.</p>';
+      return;
+    }
+
+    host.innerHTML = '<p class="runs-loading">Loading…</p>';
+    let runs: Awaited<ReturnType<AuthManager['fetchRuns']>>['runs'] = [];
+    let error: string | null = null;
+    try {
+      const res = await this.auth.fetchRuns();
+      runs = res.runs;
+      error = res.error;
+    } catch (e) {
+      error = e instanceof Error ? e.message : 'Could not load your drives.';
+    }
+    host.innerHTML = '';
+
+    if (error) {
+      host.innerHTML = `<p class="runs-error">Error: ${error}</p>`;
+      return;
+    }
+
+    if (runs.length === 0) {
+      host.innerHTML = '<p class="runs-empty">No drives yet. Complete a drive to see your history here.</p>';
+      return;
+    }
+
+    // Header + summary
+    const header = document.createElement('div');
+    header.className = 'runs-header';
+    const title = document.createElement('h2');
+    title.className = 'runs-title';
+    title.textContent = 'My Drives';
+    const finishedCount = runs.filter((r) => r.reached_end ?? (r.overall_score >= 80)).length;
+    const best = Math.max(...runs.map((r) => r.overall_score));
+    const summary = document.createElement('p');
+    summary.className = 'runs-summary';
+    summary.textContent = `${runs.length} drive${runs.length === 1 ? '' : 's'} · ${finishedCount} reached the end · best driving quality ${best}/100`;
+    header.append(title, summary);
+    host.append(header);
+
+    // Table
+    const table = document.createElement('table');
+    table.className = 'runs-table';
+
+    const thead = document.createElement('thead');
+    const headRow = document.createElement('tr');
+    for (const label of ['Date', 'Time', 'Driving Quality', 'Reached End']) {
+      const th = document.createElement('th');
+      th.textContent = label;
+      if (label === 'Driving Quality') th.className = 'col-num';
+      headRow.append(th);
+    }
+    thead.append(headRow);
+    table.append(thead);
+
+    const tbody = document.createElement('tbody');
+    for (const run of runs) {
+      // Prefer the stored reached_end flag; fall back to score for older rows that predate it.
+      const reachedEnd = run.reached_end ?? (run.overall_score >= 80);
+      const d = new Date(run.created_at);
+      const tr = document.createElement('tr');
+
+      const dateCell = document.createElement('td');
+      dateCell.textContent = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+      const timeCell = document.createElement('td');
+      timeCell.className = 'col-muted';
+      timeCell.textContent = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+
+      const scoreCell = document.createElement('td');
+      scoreCell.className = 'col-num';
+      scoreCell.textContent = `${run.overall_score} / 100`;
+
+      const resultCell = document.createElement('td');
+      const badge = document.createElement('span');
+      badge.className = `run-badge ${reachedEnd ? 'is-pass' : 'is-fail'}`;
+      badge.textContent = reachedEnd ? 'Reached end' : 'Did not finish';
+      resultCell.append(badge);
+
+      tr.append(dateCell, timeCell, scoreCell, resultCell);
+      tbody.append(tr);
+    }
+    table.append(tbody);
+    const tableWrap = document.createElement('div');
+    tableWrap.className = 'runs-table-wrap';
+    tableWrap.append(table);
+    host.append(tableWrap);
   }
 
   private buildCrashStats(): void {
