@@ -1,5 +1,6 @@
 export type Traffic = 'rush' | 'moderate' | 'light';
 export type Phase = 'day' | 'dawn' | 'dusk' | 'night';
+export type Weather = 'clear' | 'rain';
 
 export interface Trip {
   /** Minutes after midnight. */
@@ -12,6 +13,11 @@ export const TRAFFIC_LABEL: Record<Traffic, string> = {
   rush: 'Rush hour traffic',
   moderate: 'Moderate traffic',
   light: 'Light traffic',
+};
+
+export const WEATHER_LABEL: Record<Weather, string> = {
+  clear: 'Dry roads',
+  rain: 'Rain, wipers on',
 };
 
 export const PHASE_LABEL: Record<Phase, string> = {

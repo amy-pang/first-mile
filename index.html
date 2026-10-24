@@ -21,6 +21,7 @@
     <div class="stage-col">
       <div class="stage" id="stage">
         <canvas class="view" id="view" aria-label="View from the driver's seat approaching a rotary, with Massachusetts road signs"></canvas>
+        <div class="wipers" id="wipers" aria-hidden="true" hidden><i></i><i></i></div>
         <div class="cabin" aria-hidden="true">
           <svg class="frame" viewBox="0 0 1600 1000" preserveAspectRatio="none">
             <path d="M0 0 H1600 V52 Q800 86 0 52 Z" fill="var(--cab)"/>
@@ -31,6 +32,8 @@
             <path d="M880 760 Q1080 742 1290 760 L1300 1000 H870 Z" fill="var(--cab)" opacity=".55"/>
           </svg>
           <div class="mirror" id="mirror"></div>
+          <div class="side-mirror left" id="mirror-l"></div>
+          <div class="side-mirror right" id="mirror-r"></div>
           <div class="cluster">
             <svg viewBox="0 0 200 128" id="gauge">
               <rect x="2" y="2" width="196" height="124" rx="22" fill="#0B0D10" stroke="var(--cab-edge)" stroke-width="3"/>
@@ -42,6 +45,10 @@
               <circle cx="100" cy="84" r="5" fill="#F2B705"/>
               <path d="M30 22 l-12 8 l12 8 z" fill="#2A3B30" id="ind-l"/>
               <path d="M170 22 l12 8 l-12 8 z" fill="#2A3B30" id="ind-r"/>
+              <g id="ind-lights" fill="#2A3B30" stroke="#2A3B30" stroke-width="1.6" stroke-linecap="round">
+                <path d="M104 9 a7 7 0 0 1 0 14 q-3 -7 0 -14 z" stroke="none"/>
+                <path d="M100 11 h-7 M100 16 h-7 M100 21 h-7" fill="none"/>
+              </g>
             </svg>
           </div>
           <svg class="wheel" id="wheel" viewBox="0 0 200 200">
@@ -65,11 +72,16 @@
             <h2 id="r-title">Passed</h2>
             <div class="big" id="r-score">Score 100 / 100</div>
             <p id="r-body">Ready for the real thing.</p>
+            <ul class="cats" id="r-cats" aria-label="Score by category"></ul>
+            <div class="debrief">
+              <svg class="map" id="r-map" viewBox="0 0 300 300" role="img" aria-label="Map of the route you drove, with numbered spots where rules were broken"></svg>
+              <ol class="marks" id="r-marks"></ol>
+            </div>
             <button class="btn gas" id="r-again" type="button">Drive again</button>
           </div>
         </div>
       </div>
-      <p class="caption">Route shields and sign styles follow Massachusetts conventions; the rotary is a generic practice layout, not one specific real intersection. The mirror shows traffic behind you.</p>
+      <p class="caption">Route shields and sign styles follow Massachusetts conventions; the rotary is a generic practice layout, not one specific real intersection. The rear-view and side mirrors show traffic behind you.</p>
     </div>
 
     <aside class="rail">
@@ -86,6 +98,10 @@
         <div class="times">
           <label for="t-leave">Leave at<input type="time" id="t-leave" value="08:30" step="300"></label>
           <label for="t-arrive">Arrive by<input type="time" id="t-arrive" value="09:00" step="300"></label>
+        </div>
+        <div class="times">
+          <label for="t-weather">Weather<select id="t-weather"><option value="clear">Clear</option><option value="rain">Rain</option></select></label>
+          <label class="check" for="t-ems"><input type="checkbox" id="t-ems">Emergency vehicle</label>
         </div>
         <div class="chips" id="cond" aria-live="polite"></div>
         <p class="time-err" id="time-err" hidden></p>
@@ -115,10 +131,11 @@
           <button class="btn steer" id="b-right" type="button" aria-label="Steer right">Right ▶</button>
           <button class="btn look" id="b-look" type="button">◂ Look left</button>
           <button class="btn signal" id="b-signal" type="button" aria-pressed="false">Signal ▸</button>
+          <button class="btn lights" id="b-lights" type="button" aria-pressed="false">Lights</button>
           <button class="btn brake" id="b-brake" type="button">Brake</button>
           <button class="btn gas" id="b-gas" type="button">Gas</button>
         </div>
-        <p class="keys">Keys: ↑ gas · ↓/Space brake · ← → steer · Q look left · E signal · P pause · R restart</p>
+        <p class="keys">Keys: ↑ gas · ↓/Space brake · ← → steer · Q look left · E signal · L lights · M sound · P pause · R restart</p>
         <div class="trip" id="trip">
           <div><span class="lbl">Trip clock</span><b id="trip-clock">8:30 AM</b></div>
           <div><span class="lbl">Arrive by</span><b id="trip-target">9:00 AM</b></div>
@@ -127,6 +144,7 @@
         <div class="row">
           <span class="keys" id="trip-note">Trip clock runs 20× real time</span>
           <div class="links">
+            <button class="link" id="b-sound" type="button" aria-pressed="true">Sound on</button>
             <button class="link" id="b-pause" type="button" aria-pressed="false">Pause</button>
             <button class="link" id="b-restart" type="button">New run</button>
           </div>
@@ -162,6 +180,7 @@
         <h3>Other Massachusetts rules newcomers miss</h3>
         <ul class="other">
           <li><b>Hands-free only.</b> Since February 2020, drivers may not hold a phone while driving. Mount it and use voice or single-tap controls.</li>
+          <li><b>Yield to emergency vehicles.</b> When you hear a siren or see flashing lights, let the vehicle go first. In a rotary, don't enter in front of it and don't stop inside the circle: exit, then pull to the right and slow down or stop until it passes.</li>
           <li><b>Wipers on, headlights on.</b> Whenever your windshield wipers are running, your headlights must be on too.</li>
           <li><b>Default speed limits.</b> Boston's default is 25 mph unless posted. Elsewhere, thickly settled areas default to 30 mph.</li>
           <li><b>Right on red is allowed</b> after a full stop, unless a "No Turn on Red" sign is posted. Boston has many of them.</li>
@@ -169,6 +188,13 @@
         </ul>
         <p class="fine">Summarized for practice. Check the official Massachusetts Driver's Manual from the RMV before your road test.</p>
       </div>
+    </div>
+
+    <div class="card score-card">
+      <h3>How your score works</h3>
+      <p>Your score is out of 100 and comes from how you drive, not whether you reach your exit. Steady habits lose points for every second they slip, more the further off you are. One-off rules lose a set amount. You pass with <b>80 or more</b> and no critical error. Running late never costs points.</p>
+      <ul class="cats wide" id="score-rules"></ul>
+      <p class="fine">Critical errors fail the run whatever the score, as on a road test: any collision, driving through an occupied crosswalk, failing to yield entering the rotary, or pulling out in front of an ambulance.</p>
     </div>
 
     <div class="signs-head"><h3>Signs you'll pass in this run</h3></div>

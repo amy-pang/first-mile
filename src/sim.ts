@@ -1,12 +1,12 @@
 /** Traffic, pedestrians, the player's car and the rule checks. No DOM or three.js in here. */
 import {
-  AI_COLORS, DCW, DEG, DEND, DS, DY, LANE, LIMIT_APP, LIMIT_RING, MPHF, ORD, PED_COLORS, R_IN, R_OUT, RC, ROADS, RW, TAU,
+  AI_COLORS, DCW, DEG, DEND, DS, DY, LANE, MPHF, ORD, PED_COLORS, R_IN, R_OUT, RC, ROADS, RW, TAU,
   TIME_SCALE, type Pose, type Pt,
 } from './constants';
 import { add, dist, N, pickOne, rand, roadPt, U } from './math';
 import { getPath, poseAt, type Path } from './path';
 import type { SignKey } from './signs';
-import { conditionsFor, fmtT, TRAFFIC_LABEL, type Traffic, type Trip } from './trip';
+import { conditionsFor, fmtT, TRAFFIC_LABEL, type Traffic, type Trip, type Weather } from './trip';
 
 export type CoachKind = 'good' | 'warn' | 'bad' | 'info' | 'sign';
 export type RunState = 'ready' | 'driving' | 'done' | 'crashed';
@@ -29,6 +29,10 @@ export interface Car {
   braking: boolean;
   onRing: boolean;
   pose: Pose;
+  /** An ambulance running lights and siren. */
+  ems?: boolean;
+  /** 0 to 1: how far the ambulance has moved into the left lane to pass. */
+  overtake?: number;
 }
 
 export interface Ped {
@@ -55,6 +59,7 @@ export interface SimHooks {
   sign(key: SignEventKey): void;
   exitsChanged(): void;
   signalChanged(on: boolean): void;
+  lightsChanged(on: boolean): void;
   scoreChanged(score: number): void;
   driveStarted(): void;
   result(r: RunResult): void;
@@ -65,6 +70,38 @@ export interface RouteOptions {
   dest: number;
   leave: number;
   arrive: number;
+  weather: Weather;
+  /** Include an ambulance that comes through the rotary during the run. */
+  ems: boolean;
+}
+
+/**
+ * The score is 100 points split across driving skills. Steady habits (speed, following distance, lane position)
+ * lose points for every second they slip, scaled by how far off they are; one-off rules lose a fixed amount.
+ * Each category bottoms out at zero, so one bad habit can't wipe out the whole score.
+ */
+export type Category = 'speed' | 'following' | 'lane' | 'yield' | 'signals' | 'flow';
+export const CATEGORIES: readonly { key: Category; label: string; weight: number; what: string }[] = [
+  { key: 'yield', label: 'Right of way', weight: 30, what: 'Yielding to rotary traffic, pedestrians and emergency vehicles' },
+  { key: 'speed', label: 'Speed control', weight: 20, what: 'Within 25 mph on the roads and near the 20 mph advisory in the rotary' },
+  { key: 'following', label: 'Following distance', weight: 15, what: 'At least a two-second gap to the car ahead (three in rain)' },
+  { key: 'lane', label: 'Lane position and steering', weight: 15, what: 'Holding your lane, staying on the pavement, steering smoothly' },
+  { key: 'signals', label: 'Signals and checks', weight: 12, what: 'Looking left before entering, signaling your exit, headlights in rain' },
+  { key: 'flow', label: 'Rotary flow', weight: 8, what: 'Keeping moving in the rotary and making room for an ambulance' },
+];
+/** Points lost per second at full severity, for the continuously measured categories. */
+const RATE = { speed: 2, following: 1.5, lane: 1.5 } as const;
+/** A run passes at this score, as long as there was no critical error. */
+export const PASS_SCORE = 80;
+
+const clamp01 = (x: number): number => Math.max(0, Math.min(1, x));
+
+/** Where a rule was broken, for the post-run debrief map. */
+export interface Mark {
+  key: string;
+  title: string;
+  x: number;
+  y: number;
 }
 
 const crossed = (a: number, b: number, x: number): boolean => a < x && b >= x;
@@ -93,7 +130,10 @@ export class Simulation {
   peds: Ped[] = [];
   player!: Car;
   state: RunState = 'ready';
-  score = 100;
+  /** Points lost so far in each category. */
+  lost: Record<Category, number> = { speed: 0, following: 0, lane: 0, yield: 0, signals: 0, flow: 0 };
+  /** A mistake that fails the run on its own, whatever the score (as on a road test). */
+  critical: string | null = null;
   flags: Record<string, boolean> = {};
   traffic: Traffic = 'rush';
   trip: Trip = { leave: 510, arrive: 540, phase: 'day' };
@@ -105,6 +145,16 @@ export class Simulation {
   topMph = 0;
   simTime = 0;
   signal = false;
+  headlights = false;
+  weather: Weather = 'clear';
+  /** Whether this run includes an ambulance, and whether it has appeared yet. */
+  emsPlanned = false;
+  emsSpawned = false;
+  /** Where the ambulance comes from: the road to your left (yield to it) or up behind you (pull over). */
+  emsFrom: 'left' | 'behind' = 'left';
+  /** Rule breaks and the path driven, for the debrief map. */
+  marks: Mark[] = [];
+  trail: Pt[] = [];
   /** Front-wheel angle in radians; negative steers left. */
   steer = 0;
   readonly input = { gas: false, brake: false, look: false, left: false, right: false };
@@ -112,14 +162,20 @@ export class Simulation {
   private nextId = 1;
   private spawnT = 0;
   private pedT = 2;
-  private spT = 0;
-  private apT = 0;
   private stopT = 0;
   private lastLook = -99;
   private laneT = 0;
   private offT = 0;
   private sigAtExit = false;
   private missed = false;
+  private darkT = 0;
+  private pullT = 0;
+  private emsWaited = false;
+  private lightsNoted = false;
+  /** Seconds each habit has been slipping, so a coach note appears only when it lasts. */
+  private slipT: Record<string, number> = {};
+  private shownScore = 100;
+  private emsPulled = false;
   private signEvents: { key: SignEventKey; s: number }[] = [];
 
   constructor(private readonly hooks: SimHooks) {}
@@ -127,6 +183,17 @@ export class Simulation {
   /** Current trip clock, in minutes after midnight. */
   tripNow(): number {
     return this.trip.leave + (this.tripSec * TIME_SCALE) / 60;
+  }
+
+  get score(): number {
+    let total = 0;
+    for (const c of CATEGORIES) total += Math.max(0, c.weight - this.lost[c.key]);
+    return Math.round(total);
+  }
+
+  /** Points earned in each category, for the results card. */
+  breakdown(): { key: Category; label: string; weight: number; got: number; what: string }[] {
+    return CATEGORIES.map((c) => ({ ...c, got: Math.round(Math.max(0, c.weight - this.lost[c.key])) }));
   }
 
   zone(): 'approach' | 'rotary' | 'leaving' {
@@ -141,13 +208,31 @@ export class Simulation {
     this.hooks.signalChanged(on);
   }
 
+  setHeadlights(on: boolean): void {
+    this.headlights = on;
+    this.hooks.lightsChanged(on);
+    if (on && this.weather === 'rain' && this.state === 'driving' && !this.flags.lights && !this.lightsNoted) {
+      this.lightsNoted = true;
+      this.hooks.coach('good', 'Headlights on in the rain', 'Massachusetts law: whenever your wipers are running, your headlights must be on too. It helps other drivers see you.');
+    }
+  }
+
+  /** The ambulance, if one is on the road. */
+  ems(): Car | undefined {
+    return this.cars.find((c) => c.ems);
+  }
+
   restart(opts: RouteOptions): void {
     const old = this.player ? this.player.pose : null;
     this.startIdx = opts.start;
     this.destIdx = opts.dest;
     this.cars = this.cars.filter(
-      (c) => !c.isPlayer && (!old || dist(c.pose, old) > 6) && !(c.path.inIdx === opts.start && c.s < c.path.sYield + 2),
+      (c) => !c.isPlayer && !c.ems && (!old || dist(c.pose, old) > 6) && !(c.path.inIdx === opts.start && c.s < c.path.sYield + 2),
     );
+    this.weather = opts.weather;
+    this.emsPlanned = opts.ems;
+    this.emsSpawned = false;
+    this.emsFrom = Math.random() < 0.5 ? 'left' : 'behind';
     this.exitNum = (opts.dest - opts.start + 4) % 4;
     this.trip.leave = opts.leave;
     this.trip.arrive = opts.arrive;
@@ -163,16 +248,25 @@ export class Simulation {
     };
     this.cars.push(this.player);
     this.state = 'ready';
-    this.score = 100;
+    this.lost = { speed: 0, following: 0, lane: 0, yield: 0, signals: 0, flow: 0 };
+    this.critical = null;
+    this.slipT = {};
+    this.shownScore = 100;
     this.flags = {};
     this.passedCount = 0;
-    this.spT = this.apT = this.stopT = this.laneT = this.offT = 0;
+    this.stopT = this.laneT = this.offT = 0;
     this.steer = 0;
     this.sigAtExit = this.missed = false;
+    this.darkT = this.pullT = 0;
+    this.emsWaited = this.lightsNoted = this.emsPulled = false;
+    this.marks = [];
+    this.trail = [];
     this.topMph = 0;
     this.lastLook = -99;
     this.signEvents = this.buildSignEvents();
     this.setSignal(false);
+    // Night drivers already have their lights on; in rain it's up to you.
+    this.setHeadlights(this.trip.phase === 'night');
     this.hooks.scoreChanged(this.score);
 
     const R = ROADS[opts.dest];
@@ -186,13 +280,18 @@ export class Simulation {
     const light = this.trip.phase === 'night'
       ? ' It is dark: pedestrians are harder to see, so scan the crosswalk early.'
       : this.trip.phase === 'dawn' || this.trip.phase === 'dusk' ? ' Low sun and dim light make pedestrians harder to spot.' : '';
+    const rain = this.weather === 'rain'
+      ? ' It is raining: the road is slick, so brake earlier, and turn your headlights on (L) because your wipers are running.'
+      : '';
     this.hooks.coach('info', `Leaving ${fmtT(this.trip.leave)}: ${TRAFFIC_LABEL[this.traffic].toLowerCase()}`,
-      `${tips[this.traffic]}${light} You have ${this.trip.arrive - this.trip.leave} minutes to arrive by ${fmtT(this.trip.arrive)}.`);
+      `${tips[this.traffic]}${light}${rain} You have ${this.trip.arrive - this.trip.leave} minutes to arrive by ${fmtT(this.trip.arrive)}.`);
   }
 
   step(dt: number): void {
     this.simTime += dt;
-    for (const c of this.cars) if (!c.isPlayer) c.pose = poseAt(c.path, c.s);
+    for (const c of this.cars) if (!c.isPlayer) this.placeCar(c);
+    const P = this.player;
+    if (this.emsPlanned && !this.emsSpawned && this.state === 'driving' && P.s > (this.emsFrom === 'left' ? P.path.sYield - 70 : 25)) this.spawnEms();
     this.spawnT -= dt;
     if (this.spawnT <= 0) {
       this.spawnAI();
@@ -207,7 +306,7 @@ export class Simulation {
     this.updatePeds(dt);
     for (const c of this.cars) if (!c.isPlayer) this.updateAI(c, dt);
     this.updatePlayer(dt);
-    for (const c of this.cars) if (!c.isPlayer) c.pose = poseAt(c.path, c.s);
+    for (const c of this.cars) if (!c.isPlayer) this.placeCar(c);
     this.cars = this.cars.filter((c) => c.isPlayer || c.s < c.path.len - 1);
     if (this.state === 'driving') this.checkCrash();
   }
@@ -239,10 +338,54 @@ export class Simulation {
     for (const o of this.cars) {
       if (o === self || o.waiting) continue;
       if (o.s < o.path.sYield - 1) continue;
-      const reach = Math.max(o.v, 4) * 2.4 + 6;
-      for (let ds = -4; ds <= reach; ds += 1) if (dist(poseAt(o.path, o.s + ds), M) < 4) return o;
+      // A car queued behind you in your own lane isn't circulating traffic.
+      if (o.path.inIdx === self.path.inIdx && o.s < o.path.sMerge && o.s < self.s) continue;
+      if (this.approaching(o, M, 2.4)) return o;
     }
     return null;
+  }
+
+  /** True when `o` will pass close to `M` within roughly `horizon` seconds (or has only just passed it, from `from` metres back). */
+  private approaching(o: Car, M: Pt, horizon: number, from = -4): boolean {
+    const reach = Math.max(o.v, 4) * horizon + 6;
+    for (let ds = from; ds <= reach; ds += 1) if (dist(poseAt(o.path, o.s + ds), M) < 4) return true;
+    return false;
+  }
+
+  /** Put an AI car on its path; an ambulance overtaking a pulled-over player swings into the left lane. */
+  private placeCar(c: Car): void {
+    c.pose = poseAt(c.path, c.s);
+    const o = c.overtake ?? 0;
+    if (o > 0) {
+      c.pose.x += Math.sin(c.pose.h) * o * LANE * 2;
+      c.pose.y -= Math.cos(c.pose.h) * o * LANE * 2;
+    }
+  }
+
+  /**
+   * Either an ambulance enters from the road to the player's left, timed to reach the player's entry about when
+   * they do, and exits after it (ideally at the player's exit, so it follows them out); or it comes up behind the
+   * player on their own approach road.
+   */
+  private spawnEms(): void {
+    this.emsSpawned = true;
+    const st = this.startIdx;
+    const left = this.emsFrom === 'left';
+    const i = left ? (st + 3) % 4 : st;
+    const o = left
+      ? this.destIdx === (st + 1) % 4 || this.destIdx === (st + 2) % 4 ? this.destIdx : (st + 1) % 4
+      : this.destIdx;
+    const path = getPath(i, o);
+    const s = left ? path.sYield - 100 : 0;
+    // Clear its lane so it isn't stuck behind ordinary traffic before the lesson starts.
+    this.cars = this.cars.filter((c) => c.isPlayer || !(c.path.inIdx === i && (left ? Math.abs(c.s - s) < 10 : c.s < this.player.s + 4)));
+    this.cars.push({
+      id: this.nextId++, isPlayer: false, path, s, v: 13, vmax: 14, ringV: 9.5, color: '#F4F5F2', clearT: 0, cleared: true,
+      waiting: false, stuck: 0, blockedBy: null, braking: false, onRing: false, pose: poseAt(path, s), ems: true, overtake: 0,
+    });
+    this.hooks.coach('warn', 'Siren approaching', left
+      ? 'An ambulance is coming through the rotary from your left. Let it go first: don\'t enter in front of it, and never stop inside the rotary. Once you have exited, pull to the right and slow down so it can pass.'
+      : 'An ambulance is coming up behind you. Ease off, keep to the right and slow down or stop so it can pass on your left. Don\'t speed up or brake suddenly.');
   }
 
   private spawnAI(): void {
@@ -265,7 +408,8 @@ export class Simulation {
     let target = a.vmax;
     if (a.onRing) target = Math.min(target, a.ringV);
     const toY = P.sYield - a.s;
-    if (toY > 0 && toY < 30) target = Math.min(target, 3 + toY * 0.26);
+    if (toY > 0 && toY < 30 && !a.ems) target = Math.min(target, 3 + toY * 0.26);
+    if (a.ems) this.updateOvertake(a, dt);
     a.waiting = false;
     if (!a.cleared && toY > -0.5 && toY < 1.5) {
       const hold = () => { a.waiting = true; target = 0; a.v = Math.min(a.v, Math.max(0, toY) * 1.5); };
@@ -276,7 +420,8 @@ export class Simulation {
         else hold();
       }
     }
-    const { gap, by } = this.leadGap(a);
+    let { gap, by } = this.leadGap(a);
+    if (by === this.player && (a.overtake ?? 0) > 0.85) { gap = Infinity; by = null; }
     a.blockedBy = by && 'path' in by ? by : null;
     if (by) target = Math.min(target, Math.max(0, gap - 4.5) * 1.3);
     if (a.v < 0.2 && !a.waiting) a.stuck += dt;
@@ -286,6 +431,23 @@ export class Simulation {
     if (a.v < target) a.v = Math.min(target, a.v + 2.6 * dt);
     else a.v = Math.max(target, a.v - 7 * dt);
     a.s += a.v * dt;
+  }
+
+  /** How far ahead of the ambulance the player is, when both are on the same approach or exit road; null otherwise. */
+  emsBehind(a: Car): number | null {
+    const P = this.player;
+    const sameIn = a.path.inIdx === P.path.inIdx && a.s < a.path.sYield && P.s < P.path.sYield;
+    const sameOut = a.path.outIdx === P.path.outIdx && a.s > a.path.sExit - 5 && P.s > P.path.sExit;
+    if (!sameIn && !sameOut) return null;
+    const ahead = (P.pose.x - a.pose.x) * Math.cos(a.pose.h) + (P.pose.y - a.pose.y) * Math.sin(a.pose.h);
+    return dist(a.pose, P.pose) < 40 ? ahead : null;
+  }
+
+  /** Once the player has slowed on the exit road, the ambulance swings left, passes, and pulls back in. */
+  private updateOvertake(a: Car, dt: number): void {
+    const ahead = this.emsBehind(a);
+    const want = ahead !== null && ahead > -10 && (this.player.v < 3 || (a.overtake ?? 0) > 0.5) ? 1 : 0;
+    a.overtake = Math.max(0, Math.min(1, (a.overtake ?? 0) + (want ? dt : -dt * 0.7)));
   }
 
   private spawnPed(): void {
@@ -359,7 +521,8 @@ export class Simulation {
     let acc: number;
     if (this.state === 'done') acc = 1.5;
     else if (this.state === 'ready') acc = -4;
-    else acc = inp.brake ? -7.5 : inp.gas ? 3.2 : -0.6;
+    // Wet pavement: tyres grip less, so the same pedal press stops you over a longer distance.
+    else acc = inp.brake ? (this.weather === 'rain' ? -5.5 : -7.5) : inp.gas ? 3.2 : -0.6;
     if (!paved && P.v > 4) acc = Math.min(acc, -5); // curbs and grass hold you to about 9 mph
     P.v = Math.max(0, Math.min(16, P.v + acc * dt));
     this.drive(P, dt);
@@ -375,18 +538,27 @@ export class Simulation {
     P.onRing = s1 >= pt.sMerge && s1 < pt.sExit;
     this.topMph = Math.max(this.topMph, P.v * MPHF);
     while (this.signEvents.length && this.signEvents[0].s <= s1) this.hooks.sign(this.signEvents.shift()!.key);
+    const tail = this.trail[this.trail.length - 1];
+    if (!tail || dist(tail, P.pose) > 1) this.trail.push({ x: P.pose.x, y: P.pose.y });
 
-    if (s1 < pt.sYield && P.v > LIMIT_APP) {
-      this.apT += dt;
-      if (this.apT > 1.5) this.violate('approach', 5, 'Speeding on the approach', `You hit ${Math.round(P.v * MPHF)} mph in a 25 zone. Ease off early so you arrive at the rotary slowly enough to judge gaps.`);
-    } else this.apT = 0;
+    if (this.weather === 'rain' && !this.headlights) {
+      this.darkT += dt;
+      if (this.darkT > 5) this.violate('lights', 'signals', 3, 'Wipers on, headlights on', 'Massachusetts law requires headlights whenever your wipers are running. Press L to turn them on.');
+    }
+    this.checkEms(P, dt, f1);
+
+    this.assess(P, dt, paved);
 
     if (crossed(f0, f1, pt.sCW - 2) && this.peds.some((p) => p.road === this.startIdx && p.onRoad)) {
-      this.violate('ped', 35, 'You drove through an occupied crosswalk', 'Massachusetts law requires drivers to yield to people in a crosswalk. The in-street "State Law" sign is your reminder. Stop before the white bars.');
+      this.violate('ped', 'yield', 15, 'You drove through an occupied crosswalk', 'Massachusetts law requires drivers to yield to people in a crosswalk. The in-street "State Law" sign is your reminder. Stop before the white bars.', true);
     }
     if (crossed(f0, f1, pt.sYield)) {
-      if (this.simTime - this.lastLook > 8) this.violate('look', 5, 'Check left before you enter', 'Traffic in a rotary comes from your left. Hold Look left as you reach the yield line so you can judge the gap.');
-      if (this.mergeThreat(P)) this.violate('yield', 35, 'You failed to yield entering the rotary', 'A car already circulating was heading for your entry point. The Yield sign means traffic in the rotary goes first. Stop at the triangles and wait for a gap.');
+      if (this.simTime - this.lastLook > 8) this.violate('look', 'signals', 4, 'Check left before you enter', 'Traffic in a rotary comes from your left. Hold Look left as you reach the yield line so you can judge the gap.');
+      const e = this.ems();
+      if (e && e.path.inIdx !== pt.inIdx && this.approaching(e, pt.M, 4, 0)) {
+        this.violate('ems', 'yield', 12, "Don't pull out in front of an ambulance", 'Emergency vehicles with lights and siren have the right of way. Wait at the yield line until it has passed, then enter.', true);
+      } else if (this.mergeThreat(P)) this.violate('yield', 'yield', 15, 'You failed to yield entering the rotary', 'A car already circulating was heading for your entry point. The Yield sign means traffic in the rotary goes first. Stop at the triangles and wait for a gap.', true);
+      else if (this.emsWaited) this.hooks.coach('good', 'You let the ambulance through', 'Waiting at the yield line kept its path clear. Entering only after it passed was exactly right.');
       else this.hooks.coach('good', 'Clean entry', 'You entered with a safe gap. Cars already in the rotary have the right of way; entering drivers wait for them.');
     }
     for (const ps of pt.passes) {
@@ -395,28 +567,47 @@ export class Simulation {
       this.hooks.exitsChanged();
       if (this.signal && !this.flags.early) {
         this.flags.early = true;
+        this.lose('signals', 1);
         this.hooks.coach('warn', 'Signal a little later', `Your blinker was on as you passed the ${ROADS[ps.road].town} exit. Drivers waiting there may think you're leaving. Signal after you pass the exit before yours.`);
       }
     }
-    if (P.onRing && P.v > LIMIT_RING) {
-      this.spT += dt;
-      if (this.spT > 0.8) this.violate('speed', 10, 'Too fast for the rotary', `You hit ${Math.round(P.v * MPHF)} mph. The yellow plaque advised 20. Slower speeds give you time to react to merging cars.`);
-    } else this.spT = 0;
     if (P.onRing && P.v < 0.4) {
       if (this.leadGap(P).gap > 10) {
         this.stopT += dt;
-        if (this.stopT > 1.5) this.violate('stop', 10, "Don't stop inside the rotary", 'Once you are in, keep moving with traffic unless something blocks you. Stopping in the circle invites rear-end crashes.');
+        if (this.stopT > 1.5) this.violate('stop', 'flow', 5, "Don't stop inside the rotary", this.ems()
+          ? 'Even with a siren behind you, keep moving in the rotary. Stopping in the circle traps the ambulance. Exit first, then pull to the right.'
+          : 'Once you are in, keep moving with traffic unless something blocks you. Stopping in the circle invites rear-end crashes.');
       }
     } else this.stopT = 0;
     if (crossed(s0, s1, pt.sExit)) this.sigAtExit = this.signal;
     if (crossed(s0, s1, pt.sOff)) {
       if (this.sigAtExit) this.hooks.coach('good', 'Exit signaled', 'Your right blinker told drivers waiting at this entry that you were leaving, so they could go sooner.');
-      else this.violate('signal', 10, 'No exit signal', 'Turn on your right signal after you pass the exit before yours, so waiting drivers know you are leaving.');
+      else this.violate('signal', 'signals', 5, 'No exit signal', 'Turn on your right signal after you pass the exit before yours, so waiting drivers know you are leaving.');
     }
     if (crossed(s0, s1, pt.sOff + 6) && this.signal) this.setSignal(false);
     this.checkPosition(P, dt, paved);
     if (this.state !== 'driving') return;
     if (s1 > pt.sOff + 45) this.finish();
+  }
+
+  /** Ambulance rules: wait for it at the yield line, and pull over once you've exited ahead of it. */
+  private checkEms(P: Car, dt: number, f1: number): void {
+    const e = this.ems();
+    if (!e) return;
+    const pt = P.path;
+    if (f1 < pt.sYield && f1 > pt.sYield - 8 && P.v < 0.5 && this.approaching(e, pt.M, 4, 0)) this.emsWaited = true;
+    const ahead = this.emsBehind(e);
+    if (ahead === null || ahead < 0) return;
+    if (P.v < 2) {
+      if (!this.emsPulled && !this.flags['ems-pull']) {
+        this.emsPulled = true;
+        this.hooks.coach('good', 'You pulled over for the ambulance', 'Slowing and keeping right let it pass safely. Wait until it is well clear before you speed up again.');
+      }
+      return;
+    }
+    if (this.emsPulled) return;
+    this.pullT += dt;
+    if (this.pullT > 4) this.violate('ems-pull', 'flow', 4, 'Pull over and let it pass', 'With an ambulance behind you, slow down and keep to the right so it can get by. In a rotary, wait until you have exited.');
   }
 
   /** Move the player with a simple bicycle model: the arrow keys turn the front wheels, which self-centre when released. */
@@ -479,10 +670,10 @@ export class Simulation {
     const p = P.pose;
     const r = Math.hypot(p.x, p.y);
     if (r < R_IN - 0.3) {
-      this.violate('island', 15, 'You drove onto the centre island', 'Stay on the circulating roadway. The island is not a shortcut, even when the rotary looks empty.');
+      this.violate('island', 'lane', 5, 'You drove onto the centre island', 'Stay on the circulating roadway. The island is not a shortcut, even when the rotary looks empty.');
     } else if (!paved) {
       this.offT += dt;
-      if (this.offT > 0.4) this.violate('offroad', 10, 'You left the road', 'Keep all four wheels on the pavement. Ease off the gas and steer gently back into your lane.');
+      if (this.offT > 0.4) this.violate('offroad', 'lane', 3, 'You left the road', 'Keep all four wheels on the pavement. Ease off the gas and steer gently back into your lane.');
     } else this.offT = 0;
 
     if (P.s < pt.sYield - 2 || P.s > pt.sOff + 2) {
@@ -490,7 +681,7 @@ export class Simulation {
       const leftOff = (p.x - q.x) * Math.sin(q.h) - (p.y - q.y) * Math.cos(q.h);
       if (leftOff > LANE + 0.4) {
         this.laneT += dt;
-        if (this.laneT > 0.6) this.violate('lane', 10, 'Keep right of the yellow line', 'You drifted into oncoming traffic. Stay in the right-hand lane on two-way roads.');
+        if (this.laneT > 0.6) this.violate('lane', 'lane', 3, 'Keep right of the yellow line', 'You drifted into oncoming traffic. Stay in the right-hand lane on two-way roads.');
       } else this.laneT = 0;
     }
 
@@ -508,15 +699,101 @@ export class Simulation {
     const took = ROADS[road];
     const want = ROADS[this.destIdx];
     this.hooks.coach('warn', `You left toward ${took.town}`, `Your exit was Route ${want.route} to ${want.town}. If you miss an exit in a real rotary, don't brake or swerve: stay in the circle and go around again.`);
-    this.hooks.result({ pass: false, title: 'Wrong exit', body: `You took Route ${took.route} to ${took.town} instead of Route ${want.route} to ${want.town}. Watch the exit count and the green guide signs.` });
+    const pass = this.score >= PASS_SCORE && !this.critical;
+    this.hooks.result({
+      pass, title: 'Wrong exit',
+      body: `You took Route ${took.route} to ${took.town} instead of Route ${want.route} to ${want.town}. That isn't a rule break, so it doesn't cost points, but watch the exit count and the green guide signs.${this.critical ? ` Critical error: ${this.critical}.` : ''}`,
+    });
   }
 
-  private violate(key: string, pts: number, title: string, body: string): void {
+  /**
+   * A broken rule: noted once per run, with a fixed deduction from its category (0 for habits that are scored
+   * continuously instead). Critical errors fail the run whatever the score.
+   */
+  private violate(key: string, cat: Category, pts: number, title: string, body: string, critical = false): void {
     if (this.flags[key]) return;
     this.flags[key] = true;
-    this.score = Math.max(0, this.score - pts);
-    this.hooks.scoreChanged(this.score);
-    this.hooks.coach('bad', title, `${body} (−${pts})`);
+    this.mark(key, title);
+    if (critical && !this.critical) this.critical = title;
+    this.lose(cat, pts);
+    const label = CATEGORIES.find((c) => c.key === cat)!.label;
+    this.hooks.coach('bad', title, `${body} (${pts ? `−${pts} ` : ''}${label}${critical ? ', critical error' : ''})`);
+  }
+
+  private lose(cat: Category, pts: number): void {
+    this.lost[cat] += pts;
+    const sc = this.score;
+    if (sc !== this.shownScore) {
+      this.shownScore = sc;
+      this.hooks.scoreChanged(sc);
+    }
+  }
+
+  /** Track how long `key` has been slipping; true once it has lasted `after` seconds (and only once per run). */
+  private sustained(key: string, bad: boolean, dt: number, after: number): boolean {
+    this.slipT[key] = bad ? (this.slipT[key] ?? 0) + dt : 0;
+    return this.slipT[key] > after && !this.flags[key];
+  }
+
+  /** Every frame of driving: speed, following distance and lane position, each scaled by how far off it is. */
+  private assess(P: Car, dt: number, paved: boolean): void {
+    const zone = this.zone();
+    const mph = P.v * MPHF;
+
+    // Speed: a 2 mph cushion, then up to full severity 5 mph over (6 over the rotary's 20 mph advisory).
+    const ring = zone === 'rotary';
+    const limit = ring ? 20 : 25;
+    const sp = clamp01((mph - limit - 2) / (ring ? 6 : 5));
+    this.lose('speed', sp * RATE.speed * dt);
+    if (this.sustained(ring ? 'speed' : 'approach', sp > 0, dt, 1.2)) {
+      if (ring) this.violate('speed', 'speed', 0, 'Too fast for the rotary', `You hit ${Math.round(mph)} mph. The yellow plaque advised 20. Slower speeds give you time to react to merging cars.`);
+      else this.violate('approach', 'speed', 0, 'Over the speed limit', `You hit ${Math.round(mph)} mph in a 25 zone. Ease off early so you arrive at the rotary slowly enough to judge gaps.`);
+    }
+
+    // Following distance: the two-second rule, three seconds on wet roads.
+    const need = this.weather === 'rain' ? 3 : 2;
+    let fl = 0;
+    if (P.v > 3) {
+      const h = Math.max(0, this.followGap(P)) / P.v;
+      fl = clamp01((need - h) / (need - 0.5));
+    }
+    this.lose('following', fl * RATE.following * dt);
+    if (this.sustained('follow', fl > 0.3, dt, 1.5)) {
+      this.violate('follow', 'following', 0, 'Too close to the car ahead', `Keep at least ${need === 3 ? 'three seconds' : 'two seconds'} behind: pick a fixed point, and when the car ahead passes it you should be able to count "one thousand one, one thousand two"${need === 3 ? ', "one thousand three"' : ''} before you reach it.`);
+    }
+
+    // Lane position: drift from the planned line (looser through the curves and the rotary), plus harsh swerves.
+    const pt = P.path;
+    const curve = P.s > pt.sYield - 2 && P.s < pt.sOff + 2;
+    const tol = curve ? 1.6 : 0.7;
+    const dev = dist(P.pose, poseAt(pt, P.s));
+    const drift = paved ? clamp01((dev - tol) / 1.5) : 1;
+    const latAcc = (P.v * P.v * Math.abs(Math.tan(this.steer))) / WHEELBASE;
+    const swerve = clamp01((latAcc - 4.5) / 3);
+    this.lose('lane', Math.max(drift, swerve) * RATE.lane * dt);
+    if (paved && this.sustained('drift', drift > 0.3, dt, 1.5)) {
+      this.violate('drift', 'lane', 0, 'Hold your lane', 'You wandered from the middle of your lane. Look well ahead, not at the hood, and make small steering corrections.');
+    }
+    if (this.sustained('swerve', swerve > 0.4, dt, 0.4)) {
+      this.violate('swerve', 'lane', 0, 'Steer more gently', 'That was a sharp turn for your speed. Slow down before the curve, then steer smoothly.');
+    }
+  }
+
+  /** Bumper-to-bumper gap to a car travelling the same way ahead on your line; Infinity if none is close. */
+  private followGap(P: Car): number {
+    const range = Math.max(12, P.v * 3.3) + 5;
+    for (let ds = 3; ds <= range; ds += 1) {
+      const q = poseAt(P.path, P.s + ds);
+      for (const o of this.cars) {
+        if (o === P) continue;
+        if (Math.abs(o.pose.x - q.x) > 2.6 || Math.abs(o.pose.y - q.y) > 2.6) continue;
+        if (dist(o.pose, q) > 2.2) continue;
+        // Crossing and oncoming traffic isn't "the car ahead".
+        if (Math.cos(o.pose.h - P.pose.h) < 0.6) continue;
+        return ds - 4.4;
+      }
+    }
+    return Infinity;
   }
 
   private checkCrash(): void {
@@ -532,10 +809,16 @@ export class Simulation {
     }
   }
 
+  private mark(key: string, title: string): void {
+    this.marks.push({ key, title, x: this.player.pose.x, y: this.player.pose.y });
+  }
+
   private crash(kind: 'car' | 'ped' | 'house'): void {
     this.state = 'crashed';
-    this.score = 0;
-    this.hooks.scoreChanged(0);
+    const what = kind === 'car' ? 'Collision' : kind === 'house' ? 'Hit a building' : 'Hit a pedestrian';
+    this.mark('crash', what);
+    this.critical = what;
+    this.lose(kind === 'house' ? 'lane' : 'yield', 30);
     if (kind === 'car') {
       this.hooks.coach('bad', 'Collision', 'You and a circulating car reached the same spot. Slow down early, look left, and enter only when the gap is clear.');
       this.hooks.result({ pass: false, title: 'Collision', body: 'Wait for a real gap at the yield line next time.' });
@@ -550,7 +833,7 @@ export class Simulation {
 
   private finish(): void {
     this.state = 'done';
-    const pass = this.score >= 70;
+    const pass = this.score >= PASS_SCORE && !this.critical;
     const misses = Object.keys(this.flags).filter((k) => k !== 'early').length;
     const at = this.tripNow();
     const diff = Math.round(this.trip.arrive - at);
@@ -562,7 +845,9 @@ export class Simulation {
     }
     const verdict = pass
       ? misses ? 'You made it out safely. Check the coach notes for what to tighten up.' : 'Clean run. Try a rush-hour or nighttime departure next.'
-      : 'You reached your exit but broke key rotary rules. Review the coach notes and try again.';
+      : this.critical
+        ? `You reached your exit, but "${this.critical}" is a critical error that fails the run on its own. Review the coach notes and try again.`
+        : `You reached your exit, but your driving scored below ${PASS_SCORE}. Check the breakdown to see which habits cost the most.`;
     this.hooks.result({ pass, title: pass ? 'Passed' : 'Try again', body: `${verdict} ${timing}` });
   }
 }
