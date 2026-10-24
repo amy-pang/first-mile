@@ -5,6 +5,7 @@
   "description": "In-car rotary driving simulator for newcomers to Massachusetts (Hackachusetts 2026, Civic track).",
   "type": "module",
   "scripts": {
+    "preprocess": "python3 scripts/preprocess-crashes.py",
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
