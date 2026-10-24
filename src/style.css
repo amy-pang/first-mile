@@ -264,3 +264,26 @@ h1 .plate{display:inline-block; margin-left:.06em; background:var(--guide); colo
 .stat-chip span{color:var(--muted)}
 .stat-chip.warn b{color:var(--warn-ink)}
 .stat-chip.bad b{color:var(--yield)}
+
+/* auth */
+.header-row{display:flex; align-items:flex-start; justify-content:space-between; gap:16px}
+.auth-area{display:flex; align-items:center; gap:10px; flex-shrink:0; padding-top:4px}
+.auth-email{font-family:var(--mono); font-size:12px; color:var(--muted); max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.auth-btn{font:inherit; font-family:var(--display); font-weight:800; font-size:14px; padding:7px 14px 5px; border-radius:8px; border:1.5px solid var(--guide); background:transparent; color:var(--guide); cursor:pointer; white-space:nowrap}
+.auth-btn:hover{background:var(--guide); color:var(--guide-ink)}
+.auth-btn:focus-visible{outline:3px solid var(--amber); outline-offset:2px}
+.auth-btn.signed-in{border-color:var(--line); color:var(--muted)}
+.auth-btn.signed-in:hover{background:var(--yield); border-color:var(--yield); color:var(--sign-white)}
+
+.auth-modal{position:fixed; inset:0; background:var(--scrim); display:grid; place-items:center; z-index:100; padding:20px}
+.auth-card{background:var(--surface); border-radius:14px; padding:28px 24px; width:min(400px,100%); display:flex; flex-direction:column; gap:12px; box-shadow:0 20px 48px rgba(0,0,0,.35)}
+.auth-card h2{margin:0; font-family:var(--display); font-weight:900; font-size:24px}
+.auth-card input{font:inherit; font-family:var(--mono); font-size:15px; color:var(--fg); background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:9px 11px; width:100%}
+.auth-card input:focus-visible{outline:2px solid var(--amber); outline-offset:1px}
+.auth-error{margin:0; font-size:13px; color:var(--yield); font-weight:700}
+.auth-cancel{color:var(--muted)}
+
+.run-save-status{margin:0; font-size:13px; font-weight:700}
+.run-save-status.saved{color:var(--ok)}
+.run-save-status.prompt{color:var(--muted)}
+.run-save-status.error{color:var(--yield)}

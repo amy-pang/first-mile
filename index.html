@@ -12,9 +12,17 @@
 <body>
 <div class="wrap">
   <header>
-    <div class="eyebrow">Hackachusetts 2026 · Civic track prototype</div>
-    <h1>First<span class="plate">Mile</span></h1>
-    <p class="tagline">Your first mile on Massachusetts roads. Sit behind the wheel, approach a rotary, learn each sign as you pass it, and get coached on the rules newcomers miss.</p>
+    <div class="header-row">
+      <div>
+        <div class="eyebrow">Hackachusetts 2026 · Civic track prototype</div>
+        <h1>First<span class="plate">Mile</span></h1>
+        <p class="tagline">Your first mile on Massachusetts roads. Sit behind the wheel, approach a rotary, learn each sign as you pass it, and get coached on the rules newcomers miss.</p>
+      </div>
+      <div class="auth-area">
+        <span class="auth-email" id="auth-email-display" hidden></span>
+        <button class="auth-btn" id="auth-btn" type="button">Sign in</button>
+      </div>
+    </div>
   </header>
 
   <nav class="tab-bar" role="tablist" aria-label="App sections">
@@ -87,6 +95,7 @@
               <svg class="map" id="r-map" viewBox="0 0 300 300" role="img" aria-label="Map of the route you drove, with numbered spots where rules were broken"></svg>
               <ol class="marks" id="r-marks"></ol>
             </div>
+            <p class="run-save-status" id="run-save-status" hidden></p>
             <button class="btn gas" id="r-again" type="button">Drive again</button>
           </div>
         </div>
@@ -237,6 +246,18 @@
     </section>
   </div>
 
+</div>
+
+<div class="auth-modal" id="auth-modal" hidden>
+  <div class="auth-card">
+    <h2 id="auth-title">Sign in</h2>
+    <input id="auth-input-email" type="email" placeholder="Email" autocomplete="email">
+    <input id="auth-input-password" type="password" placeholder="Password" autocomplete="current-password">
+    <p class="auth-error" id="auth-error" hidden></p>
+    <button class="btn-primary" id="auth-submit" type="button">Sign in</button>
+    <button class="link" id="auth-toggle" type="button">No account? Sign up</button>
+    <button class="link auth-cancel" id="auth-cancel" type="button">Cancel</button>
+  </div>
 </div>
 
 <script type="module" src="/src/main.ts"></script>
