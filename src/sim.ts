@@ -1,9 +1,9 @@
 /** Traffic, pedestrians, the player's car and the rule checks. No DOM or three.js in here. */
 import {
-  AI_COLORS, DCW, DEG, DS, DY, LANE, LIMIT_APP, LIMIT_RING, MPHF, ORD, PED_COLORS, RC, ROADS, RW, TAU, TIME_SCALE,
-  type Pose,
+  AI_COLORS, DCW, DEG, DEND, DS, DY, LANE, LIMIT_APP, LIMIT_RING, MPHF, ORD, PED_COLORS, R_IN, R_OUT, RC, ROADS, RW, TAU,
+  TIME_SCALE, type Pose, type Pt,
 } from './constants';
-import { add, dist, pickOne, rand, roadPt, U } from './math';
+import { add, dist, N, pickOne, rand, roadPt, U } from './math';
 import { getPath, poseAt, type Path } from './path';
 import type { SignKey } from './signs';
 import { conditionsFor, fmtT, TRAFFIC_LABEL, type Traffic, type Trip } from './trip';
@@ -69,6 +69,25 @@ export interface RouteOptions {
 
 const crossed = (a: number, b: number, x: number): boolean => a < x && b >= x;
 
+const WHEELBASE = 2.7;
+/** Largest front-wheel angle at a standstill, in radians; it shrinks as speed rises. */
+const STEER_MAX = 0.55;
+
+/** True when `p` is on asphalt: an approach road, the circulating roadway, or the flare where they meet. */
+export function onPavement(p: Pt): boolean {
+  const r = Math.hypot(p.x, p.y);
+  if (r >= R_IN && r <= R_OUT + 1.5) return true;
+  for (const road of ROADS) {
+    const u = U(road.phi);
+    const n = N(road.phi);
+    const along = p.x * u.x + p.y * u.y;
+    const lat = Math.abs(p.x * n.x + p.y * n.y);
+    if (along > R_IN && along < DEND + 40 && lat <= RW + 0.6) return true;
+    if (along > R_IN && along < DY + 4 && lat <= RW + 5) return true;
+  }
+  return false;
+}
+
 export class Simulation {
   cars: Car[] = [];
   peds: Ped[] = [];
@@ -86,7 +105,9 @@ export class Simulation {
   topMph = 0;
   simTime = 0;
   signal = false;
-  readonly input = { gas: false, brake: false, look: false };
+  /** Front-wheel angle in radians; negative steers left. */
+  steer = 0;
+  readonly input = { gas: false, brake: false, look: false, left: false, right: false };
 
   private nextId = 1;
   private spawnT = 0;
@@ -95,6 +116,10 @@ export class Simulation {
   private apT = 0;
   private stopT = 0;
   private lastLook = -99;
+  private laneT = 0;
+  private offT = 0;
+  private sigAtExit = false;
+  private missed = false;
   private signEvents: { key: SignEventKey; s: number }[] = [];
 
   constructor(private readonly hooks: SimHooks) {}
@@ -141,7 +166,9 @@ export class Simulation {
     this.score = 100;
     this.flags = {};
     this.passedCount = 0;
-    this.spT = this.apT = this.stopT = 0;
+    this.spT = this.apT = this.stopT = this.laneT = this.offT = 0;
+    this.steer = 0;
+    this.sigAtExit = this.missed = false;
     this.topMph = 0;
     this.lastLook = -99;
     this.signEvents = this.buildSignEvents();
@@ -165,7 +192,7 @@ export class Simulation {
 
   step(dt: number): void {
     this.simTime += dt;
-    for (const c of this.cars) c.pose = poseAt(c.path, c.s);
+    for (const c of this.cars) if (!c.isPlayer) c.pose = poseAt(c.path, c.s);
     this.spawnT -= dt;
     if (this.spawnT <= 0) {
       this.spawnAI();
@@ -180,7 +207,7 @@ export class Simulation {
     this.updatePeds(dt);
     for (const c of this.cars) if (!c.isPlayer) this.updateAI(c, dt);
     this.updatePlayer(dt);
-    for (const c of this.cars) c.pose = poseAt(c.path, c.s);
+    for (const c of this.cars) if (!c.isPlayer) c.pose = poseAt(c.path, c.s);
     this.cars = this.cars.filter((c) => c.isPlayer || c.s < c.path.len - 1);
     if (this.state === 'driving') this.checkCrash();
   }
@@ -328,13 +355,16 @@ export class Simulation {
       this.hooks.driveStarted();
     }
     if (this.state === 'crashed') { P.v = 0; return; }
+    const paved = onPavement(P.pose);
     let acc: number;
     if (this.state === 'done') acc = 1.5;
     else if (this.state === 'ready') acc = -4;
     else acc = inp.brake ? -7.5 : inp.gas ? 3.2 : -0.6;
+    if (!paved && P.v > 4) acc = Math.min(acc, -5); // curbs and grass hold you to about 9 mph
     P.v = Math.max(0, Math.min(16, P.v + acc * dt));
+    this.drive(P, dt);
     const s0 = P.s;
-    P.s += P.v * dt;
+    P.s = this.progress(P);
     const s1 = P.s;
     if (inp.look) this.lastLook = this.simTime;
     if (this.state !== 'driving') return;
@@ -378,12 +408,107 @@ export class Simulation {
         if (this.stopT > 1.5) this.violate('stop', 10, "Don't stop inside the rotary", 'Once you are in, keep moving with traffic unless something blocks you. Stopping in the circle invites rear-end crashes.');
       }
     } else this.stopT = 0;
-    if (crossed(s0, s1, pt.sExit)) {
-      if (this.signal) this.hooks.coach('good', 'Exit signaled', 'Your right blinker told drivers waiting at this entry that you were leaving, so they could go sooner.');
+    if (crossed(s0, s1, pt.sExit)) this.sigAtExit = this.signal;
+    if (crossed(s0, s1, pt.sOff)) {
+      if (this.sigAtExit) this.hooks.coach('good', 'Exit signaled', 'Your right blinker told drivers waiting at this entry that you were leaving, so they could go sooner.');
       else this.violate('signal', 10, 'No exit signal', 'Turn on your right signal after you pass the exit before yours, so waiting drivers know you are leaving.');
     }
     if (crossed(s0, s1, pt.sOff + 6) && this.signal) this.setSignal(false);
+    this.checkPosition(P, dt, paved);
+    if (this.state !== 'driving') return;
     if (s1 > pt.sOff + 45) this.finish();
+  }
+
+  /** Move the player with a simple bicycle model: the arrow keys turn the front wheels, which self-centre when released. */
+  private drive(P: Car, dt: number): void {
+    const inp = this.input;
+    const dir = (inp.right ? 1 : 0) - (inp.left ? 1 : 0);
+    const lim = STEER_MAX / (1 + P.v * 0.12);
+    const rate = dir ? 1.4 : 3;
+    const want = dir * lim;
+    this.steer += Math.max(-rate * dt, Math.min(rate * dt, want - this.steer));
+    this.steer = Math.max(-lim, Math.min(lim, this.steer));
+    const p = P.pose;
+    p.h += ((P.v * Math.tan(this.steer)) / WHEELBASE) * dt;
+    const nx = p.x + Math.cos(p.h) * P.v * dt;
+    const ny = p.y + Math.sin(p.h) * P.v * dt;
+    // Edge of the modelled town: stop rather than drive into the void.
+    if (Math.hypot(nx, ny) > DEND + 60) { P.v = 0; return; }
+    p.x = nx;
+    p.y = ny;
+  }
+
+  /** Where the player is along their planned route, found from their free position. */
+  private progress(P: Car): number {
+    const pt = P.path;
+    const s0 = P.s;
+    let best = s0;
+    let bd = Infinity;
+    for (let s = Math.max(0, s0 - 4); s <= Math.min(pt.len, s0 + 12); s += 0.5) {
+      const d = dist(poseAt(pt, s), P.pose);
+      if (d < bd) { bd = d; best = s; }
+    }
+    const r = Math.hypot(P.pose.x, P.pose.y);
+    if (s0 < pt.sMerge - 1 || bd < 3 || r < R_IN - 1.5 || r > R_OUT + 1.5) return best;
+    // Circulating but off the planned line: measure progress by ring angle instead.
+    let a = (pt.ta - Math.atan2(P.pose.y, P.pose.x)) % TAU;
+    if (a < 0) a += TAU;
+    const sr = pt.sMerge + a * RC;
+    if (sr <= pt.sExit) {
+      if (sr < s0 - 20) this.newLap();
+      return sr;
+    }
+    if (!this.missed && this.state === 'driving') {
+      this.missed = true;
+      this.hooks.coach('warn', 'Missed your exit? Go around again', "That's fine in a rotary. Stay in the circle, keep moving, and take your exit when it comes back around.");
+    }
+    return s0;
+  }
+
+  private newLap(): void {
+    this.passedCount = 0;
+    this.missed = false;
+    this.hooks.exitsChanged();
+    const ev = this.buildSignEvents().find((e) => e.key === 'exit');
+    if (ev && !this.signEvents.some((e) => e.key === 'exit')) this.signEvents.unshift(ev);
+  }
+
+  /** Lane, off-road and wrong-exit checks for a car that can now go anywhere. */
+  private checkPosition(P: Car, dt: number, paved: boolean): void {
+    const pt = P.path;
+    const p = P.pose;
+    const r = Math.hypot(p.x, p.y);
+    if (r < R_IN - 0.3) {
+      this.violate('island', 15, 'You drove onto the centre island', 'Stay on the circulating roadway. The island is not a shortcut, even when the rotary looks empty.');
+    } else if (!paved) {
+      this.offT += dt;
+      if (this.offT > 0.4) this.violate('offroad', 10, 'You left the road', 'Keep all four wheels on the pavement. Ease off the gas and steer gently back into your lane.');
+    } else this.offT = 0;
+
+    if (P.s < pt.sYield - 2 || P.s > pt.sOff + 2) {
+      const q = poseAt(pt, P.s);
+      const leftOff = (p.x - q.x) * Math.sin(q.h) - (p.y - q.y) * Math.cos(q.h);
+      if (leftOff > LANE + 0.4) {
+        this.laneT += dt;
+        if (this.laneT > 0.6) this.violate('lane', 10, 'Keep right of the yellow line', 'You drifted into oncoming traffic. Stay in the right-hand lane on two-way roads.');
+      } else this.laneT = 0;
+    }
+
+    if (P.s < pt.sMerge) return;
+    for (let i = 0; i < 4; i++) {
+      if (i === pt.outIdx) continue;
+      const u = U(ROADS[i].phi);
+      const n = N(ROADS[i].phi);
+      if (p.x * u.x + p.y * u.y > DY + 8 && Math.abs(p.x * n.x + p.y * n.y) < RW + 3) return this.wrongExit(i);
+    }
+  }
+
+  private wrongExit(road: number): void {
+    this.state = 'done';
+    const took = ROADS[road];
+    const want = ROADS[this.destIdx];
+    this.hooks.coach('warn', `You left toward ${took.town}`, `Your exit was Route ${want.route} to ${want.town}. If you miss an exit in a real rotary, don't brake or swerve: stay in the circle and go around again.`);
+    this.hooks.result({ pass: false, title: 'Wrong exit', body: `You took Route ${took.route} to ${took.town} instead of Route ${want.route} to ${want.town}. Watch the exit count and the green guide signs.` });
   }
 
   private violate(key: string, pts: number, title: string, body: string): void {
@@ -399,15 +524,24 @@ export class Simulation {
     const front = add(pp, U(pp.h), 1.8);
     for (const c of this.cars) if (!c.isPlayer && dist(c.pose, pp) < 3.0) return this.crash('car');
     for (const p of this.peds) if (dist(p, pp) < 1.5 || dist(p, front) < 1.2) return this.crash('ped');
+    // Rows of houses line each road from 46 m out, set back 10.5 m from its centreline (see World.buildHouses).
+    for (const r of ROADS) {
+      const along = front.x * Math.cos(r.phi) + front.y * Math.sin(r.phi);
+      const lat = Math.abs(-front.x * Math.sin(r.phi) + front.y * Math.cos(r.phi));
+      if (along > 46 && along < DEND && lat > 10.3 && lat < 21) return this.crash('house');
+    }
   }
 
-  private crash(kind: 'car' | 'ped'): void {
+  private crash(kind: 'car' | 'ped' | 'house'): void {
     this.state = 'crashed';
     this.score = 0;
     this.hooks.scoreChanged(0);
     if (kind === 'car') {
       this.hooks.coach('bad', 'Collision', 'You and a circulating car reached the same spot. Slow down early, look left, and enter only when the gap is clear.');
       this.hooks.result({ pass: false, title: 'Collision', body: 'Wait for a real gap at the yield line next time.' });
+    } else if (kind === 'house') {
+      this.hooks.coach('bad', 'You hit a building', 'You left the road and struck a house. If you drift off the pavement, brake and steer gently back into your lane.');
+      this.hooks.result({ pass: false, title: 'Off the road', body: 'Keep the car between the curbs, and slow down before you steer hard.' });
     } else {
       this.hooks.coach('bad', 'You hit a pedestrian', 'Watch the crosswalk on your approach and be ready to stop before the white bars.');
       this.hooks.result({ pass: false, title: 'Pedestrian struck', body: 'Scan the crosswalk before you reach it.' });

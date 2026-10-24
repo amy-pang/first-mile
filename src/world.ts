@@ -1,7 +1,7 @@
 /** The three.js scene: roads, houses, trees, signs, traffic meshes, lighting and the two cameras. */
 import * as THREE from 'three';
 import { DCW, DEG, DEND, DY, R_IN, R_OUT, ROADS, RW, TAU, type Pt } from './constants';
-import { add, angDiff, lerpAngle, pickOne, rand, ringPt, roadPt, tanAt, U, yawFor } from './math';
+import { add, lerpAngle, pickOne, rand, ringPt, roadPt, tanAt, U, yawFor } from './math';
 import type { Simulation } from './sim';
 import { SIGNS, type SignSpec } from './signs';
 import type { Phase } from './trip';
@@ -477,9 +477,9 @@ export class World {
     const pp = sim.player.pose;
     const cam = this.cam;
     cam.h = lerpAngle(cam.h, pp.h, Math.min(1, dt * 9));
-    const turnRate = dt > 0 ? angDiff(cam.prevH, cam.h) / dt : 0;
     cam.prevH = cam.h;
-    const steerTarget = Math.max(-110, Math.min(110, turnRate * 190));
+    // About three turns of the wheel per radian of front-wheel angle, like a real steering rack.
+    const steerTarget = Math.max(-180, Math.min(180, (sim.steer * 180 * 3) / Math.PI));
     cam.steer += (steerTarget - cam.steer) * Math.min(1, dt * 6);
     cam.yaw += ((sim.input.look ? -1.05 : 0) - cam.yaw) * Math.min(1, dt * 7);
 

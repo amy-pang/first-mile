@@ -79,7 +79,7 @@ export class UI implements SimHooks {
     this.renderMap();
     el('result').hidden = true;
     if (this.paused) this.setPause(false);
-    this.setPrompt('Hold Gas or ↑ to drive', 'Hold Look left or ← to check traffic');
+    this.setPrompt('Hold Gas or ↑ to drive', 'Steer with ← →. Hold Q to look left, E to signal');
     el('prompt').hidden = false;
   }
 
@@ -326,7 +326,7 @@ export class UI implements SimHooks {
       this.setPrompt('Paused', 'Press P or Resume to keep driving');
       el('prompt').hidden = false;
     } else if (this.sim.state === 'ready') {
-      this.setPrompt('Hold Gas or ↑ to drive', 'Hold Look left or ← to check traffic');
+      this.setPrompt('Hold Gas or ↑ to drive', 'Steer with ← →. Hold Q to look left, E to signal');
     } else {
       el('prompt').hidden = true;
     }
@@ -348,6 +348,8 @@ export class UI implements SimHooks {
     hold(el('b-gas'), 'gas');
     hold(el('b-brake'), 'brake');
     hold(el('b-look'), 'look');
+    hold(el('b-left'), 'left');
+    hold(el('b-right'), 'right');
     el('b-signal').addEventListener('click', () => this.sim.setSignal(!this.sim.signal));
     el('b-restart').addEventListener('click', () => this.restart());
     el('b-pause').addEventListener('click', () => this.setPause(!this.paused));
@@ -356,9 +358,11 @@ export class UI implements SimHooks {
     const KEYS: Record<keyof typeof input, string[]> = {
       gas: ['ArrowUp', 'w', 'W'],
       brake: ['ArrowDown', 's', 'S', ' '],
-      look: ['ArrowLeft', 'a', 'A', 'q', 'Q'],
+      look: ['q', 'Q'],
+      left: ['ArrowLeft', 'a', 'A'],
+      right: ['ArrowRight', 'd', 'D'],
     };
-    const SIG = ['ArrowRight', 'd', 'D', 'e', 'E'];
+    const SIG = ['e', 'E'];
     const typing = (e: KeyboardEvent) => e.target instanceof HTMLInputElement;
     window.addEventListener('keydown', (e) => {
       if (typing(e)) return;
@@ -372,7 +376,7 @@ export class UI implements SimHooks {
     window.addEventListener('keyup', (e) => {
       for (const k of Object.keys(KEYS) as (keyof typeof input)[]) if (KEYS[k].includes(e.key)) input[k] = false;
     });
-    window.addEventListener('blur', () => { input.gas = input.brake = input.look = false; });
+    window.addEventListener('blur', () => { input.gas = input.brake = input.look = input.left = input.right = false; });
   }
 
   /* ---------- route map and trip times ---------- */
