@@ -129,13 +129,14 @@
         <div class="pad">
           <button class="btn steer" id="b-left" type="button" aria-label="Steer left">◀ Left</button>
           <button class="btn steer" id="b-right" type="button" aria-label="Steer right">Right ▶</button>
-          <button class="btn look" id="b-look" type="button">◂ Look left</button>
+          <button class="btn signal" id="b-signal-l" type="button" aria-pressed="false">◂ Signal</button>
           <button class="btn signal" id="b-signal" type="button" aria-pressed="false">Signal ▸</button>
+          <button class="btn look" id="b-look" type="button">◂ Look left</button>
           <button class="btn lights" id="b-lights" type="button" aria-pressed="false">Lights</button>
           <button class="btn brake" id="b-brake" type="button">Brake</button>
           <button class="btn gas" id="b-gas" type="button">Gas</button>
         </div>
-        <p class="keys">Keys: ↑ gas · ↓/Space brake · ← → steer · Q look left · E signal · L lights · M sound · P pause · R restart</p>
+        <p class="keys">Keys: ↑ gas · ↓/Space brake · ← → steer · Q look left · Z/E signal left/right · L lights · M sound · P pause · R restart</p>
         <div class="trip" id="trip">
           <div><span class="lbl">Trip clock</span><b id="trip-clock">8:30 AM</b></div>
           <div><span class="lbl">Arrive by</span><b id="trip-target">9:00 AM</b></div>
@@ -168,6 +169,7 @@
       <div class="card">
         <h3>Driving a rotary, step by step</h3>
         <ol class="steps">
+          <li><span><b>Merge out of the ending lane.</b> Signal left, check your left mirror, then look over your shoulder for a car in your blind spot. Move over only into a safe gap.</span></li>
           <li><span><b>Slow down early and count your exit.</b> The green diagram sign shows every exit with its route shield. Know whether yours is the 1st, 2nd or 3rd before you arrive.</span></li>
           <li><span><b>Watch the crosswalk.</b> If someone is crossing, stop before the white bars. People in a crosswalk have the right of way.</span></li>
           <li><span><b>Yield at the white triangles and look left.</b> Cars already in the rotary have the right of way, and they come at you from the left.</span></li>
@@ -194,7 +196,7 @@
       <h3>How your score works</h3>
       <p>Your score is out of 100 and comes from how you drive, not whether you reach your exit. Steady habits lose points for every second they slip, more the further off you are. One-off rules lose a set amount. You pass with <b>80 or more</b> and no critical error. Running late never costs points.</p>
       <ul class="cats wide" id="score-rules"></ul>
-      <p class="fine">Critical errors fail the run whatever the score, as on a road test: any collision, driving through an occupied crosswalk, failing to yield entering the rotary, or pulling out in front of an ambulance.</p>
+      <p class="fine">Critical errors fail the run whatever the score, as on a road test: any collision, driving through an occupied crosswalk, failing to yield entering the rotary, pulling out in front of an ambulance, or changing lanes into a car in your blind spot.</p>
     </div>
 
     <div class="signs-head"><h3>Signs you'll pass in this run</h3></div>

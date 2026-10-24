@@ -7,6 +7,7 @@ Built for **Hackachusetts 2026 · Civic track**.
 ## Features
 
 - **Free steering.** Steer with the arrow keys or the on-screen buttons. The wheels straighten when you let go, and you can miss your exit and go around again.
+- **Lane change and blind spots.** Every approach has a right lane that ends before the rotary, and you start in it. A car comes up in the left lane behind you, so you have to signal left (Z), check your mirror, look over your shoulder (hold Q) and merge into a safe gap. Moving into an occupied blind spot is a critical error.
 - **Rain.** Choose rainy weather for slick roads, longer stopping distances, wipers and a grey sky. The Massachusetts rule *wipers on, headlights on* is checked: press L to turn your lights on.
 - **Emergency vehicle.** Tick "Emergency vehicle" and an ambulance with lights and a siren comes through the rotary from your left. Wait for it at the yield line, keep moving inside the rotary, and pull over once you've exited ahead of it. The siren is panned so you can hear which side it's on.
 - **Debrief map.** After each run, the result card shows the line you drove with a numbered dot at every spot where you broke a rule.
@@ -16,7 +17,7 @@ Built for **Hackachusetts 2026 · Civic track**.
 - **Route map.** Choose your start and destination around the rotary (US 20 Allston, MA 2A Cambridge, MA 16 Somerville, MA 2 West Arlington).
 - **Trip times.** Set when you leave and when you need to arrive. Your departure time sets traffic (rush hour, moderate, light) and lighting (day, sunrise, sunset, night). The trip clock runs 20× real time.
 - **Rule checks and coaching.** Yielding to circulating traffic, looking left, stopping for pedestrians, speed, not stopping inside the rotary, signaling your exit, keeping right of the yellow line, staying on the road and out of the centre island, and taking the right exit. Arriving late never costs points; speeding does.
-- **Score based on driving habits.** 100 points across six weighted categories: right of way (30), speed control (20), following distance (15, two-second rule, three in rain), lane position and steering (15), signals and checks (12) and traffic flow (8). Steady habits lose points every second they slip, scaled by how far off you are; one-off rules lose a fixed amount. Pass with 80+ and no critical error (collision, occupied crosswalk, failing to yield, pulling out in front of an ambulance). Taking the wrong exit or arriving late costs nothing. The result card shows the breakdown.
+- **Score based on driving habits.** 100 points across six weighted categories: right of way (30), speed control (20), following distance (15, two-second rule, three in rain), lane position and steering (15), signals and checks (10) and checking blind spots (10). Steady habits lose points every second they slip, scaled by how far off you are; one-off rules lose a fixed amount. Pass with 80+ and no critical error (collision, occupied crosswalk, failing to yield, pulling out in front of an ambulance, an unsafe lane change). Taking the wrong exit or arriving late costs nothing. The result card shows the breakdown.
 - **Rules and signs guide.** Plain-language explanations of rotary rules and other Massachusetts rules newcomers often miss.
 
 ## Getting started
@@ -38,7 +39,8 @@ npm run typecheck  # type-check only
 | Gas | Gas | ↑ or W |
 | Brake | Brake | ↓, S or Space |
 | Steer left / right | Left / Right | ← → or A D |
-| Look left | Look left | Q |
+| Look left / over your shoulder | Look left | Q |
+| Signal left | ◂ Signal | Z |
 | Signal right | Signal | E |
 | Headlights | Lights | L |
 | Sound on/off | Sound on | M |

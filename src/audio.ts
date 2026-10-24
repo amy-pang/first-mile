@@ -186,8 +186,9 @@ export class CarAudio {
     }
 
     // Blinker relay: a soft tick on, tock off, in step with the dashboard arrow.
-    const blink = sim.signal && now % 800 < 440;
-    if (sim.signal && blink !== this.lastBlink && !paused) this.click(blink ? 1100 : 850);
+    const on = sim.signal || sim.signalLeft;
+    const blink = on && now % 800 < 440;
+    if (on && blink !== this.lastBlink && !paused) this.click(blink ? 1100 : 850);
     this.lastBlink = blink;
 
     if (sim.state !== this.lastState) {

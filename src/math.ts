@@ -1,4 +1,4 @@
-import { RC, TAU, type Pt } from './constants';
+import { CURB_W, LANE_DROP, LANE_END, RC, RW, TAU, type Pt } from './constants';
 
 export const U = (p: number): Pt => ({ x: Math.cos(p), y: Math.sin(p) });
 export const N = (p: number): Pt => ({ x: -Math.sin(p), y: Math.cos(p) });
@@ -9,6 +9,16 @@ export const roadPt = (p: number, d: number, o: number): Pt => {
   const n = N(p);
   return { x: u.x * d + n.x * o, y: u.y * d + n.y * o };
 };
+
+/** Sideways offset of an approach road's inbound (right) edge at distance `d`: wider where the extra lane runs. */
+export const inboundEdge = (d: number): number => {
+  if (d >= LANE_DROP) return -(RW + CURB_W);
+  if (d <= LANE_END) return -RW;
+  return -(RW + (CURB_W * (d - LANE_END)) / (LANE_DROP - LANE_END));
+};
+
+/** Centre of the extra right-hand lane at distance `d` (it narrows through the taper). */
+export const curbCentre = (d: number): number => (inboundEdge(d) - RW) / 2;
 
 export const ringPt = (t: number, r: number = RC): Pt => ({ x: Math.cos(t) * r, y: Math.sin(t) * r });
 

@@ -1,7 +1,7 @@
 /** The three.js scene: roads, houses, trees, signs, traffic meshes, lighting and the two cameras. */
 import * as THREE from 'three';
-import { DCW, DEG, DEND, DY, R_IN, R_OUT, ROADS, RW, TAU, type Pt } from './constants';
-import { add, lerpAngle, pickOne, rand, ringPt, roadPt, tanAt, U, yawFor } from './math';
+import { DCW, DEG, DEND, DY, LANE_DROP, LANE_END, R_IN, R_OUT, ROADS, RW, TAU, type Pt } from './constants';
+import { add, inboundEdge, lerpAngle, pickOne, rand, ringPt, roadPt, tanAt, U, yawFor } from './math';
 import type { Simulation } from './sim';
 import { SIGNS, type SignSpec } from './signs';
 import type { Phase, Weather } from './trip';
@@ -247,6 +247,14 @@ export class World {
     this.quad(L, roadPt(phi, d0, off - w / 2), roadPt(phi, d1, off - w / 2), roadPt(phi, d1, off + w / 2), roadPt(phi, d0, off + w / 2));
   }
 
+  /** Like `strip`, but with sideways offsets that vary along the road (sampled every 2.5 m). */
+  private edgeStrip(L: Layer, phi: number, d0: number, d1: number, a: (d: number) => number, b: (d: number) => number): void {
+    for (let d = d0; d < d1; d += 2.5) {
+      const e = Math.min(d1, d + 2.5);
+      this.quad(L, roadPt(phi, d, a(d)), roadPt(phi, e, a(e)), roadPt(phi, e, b(e)), roadPt(phi, d, b(d)));
+    }
+  }
+
   private band(L: Layer, r0: number, r1: number, t0: number, t1: number): void {
     const n = Math.max(4, Math.ceil(Math.abs(t1 - t0) / (3 * DEG)));
     for (let i = 0; i < n; i++) {
@@ -263,12 +271,16 @@ export class World {
     const walk = this.layer('walk', 0xb9b6ae, 0.14);
     for (const r of ROADS) {
       this.strip(asph, r.phi, R_IN + 2, DEND + 40, 0, RW * 2);
-      this.strip(walk, r.phi, R_OUT + 1.2, DEND + 40, -(RW + 1.25), 2.5);
+      // The extra inbound lane, its taper, and the sidewalk and edge line that follow it.
+      this.edgeStrip(asph, r.phi, LANE_END, DEND + 40, inboundEdge, () => -RW);
+      this.edgeStrip(walk, r.phi, R_OUT + 1.2, DEND + 40, (d) => inboundEdge(d) - 2.5, inboundEdge);
       this.strip(walk, r.phi, R_OUT + 1.2, DEND + 40, RW + 1.25, 2.5);
       this.strip(yel, r.phi, R_OUT + 1, DEND + 40, -0.16, 0.12);
       this.strip(yel, r.phi, R_OUT + 1, DEND + 40, 0.16, 0.12);
-      this.strip(paint, r.phi, R_OUT + 3, DEND + 40, -(RW - 0.25), 0.13);
+      this.edgeStrip(paint, r.phi, R_OUT + 3, DEND + 40, (d) => inboundEdge(d) + 0.19, (d) => inboundEdge(d) + 0.32);
       this.strip(paint, r.phi, R_OUT + 3, DEND + 40, RW - 0.25, 0.13);
+      // Broken white lane line between the two inbound lanes: 3 m dashes, 9 m gaps.
+      for (let d = LANE_DROP; d < DEND + 40; d += 12) this.strip(paint, r.phi, d, d + 3, -RW, 0.13);
       for (let o = -3.3; o <= 3.31; o += 1.1) this.strip(paint, r.phi, DCW - 2, DCW + 2, o, 0.5);
       for (let o = -RW + 0.5; o <= -0.6; o += 0.9) {
         this.tri(paint, roadPt(r.phi, DY, o - 0.3), roadPt(r.phi, DY, o + 0.3), roadPt(r.phi, DY + 0.9, o));
@@ -368,6 +380,8 @@ export class World {
       for (const side of [-1, 1]) {
         for (let d = 48; d < 212; d += 16) {
           if (side === -1 && signZones.some((z) => Math.abs(z - d) < 9)) continue;
+          // The extra inbound lane and its sidewalk fill the verge here.
+          if (side === -1 && d > LANE_END - 6) continue;
           tree(roadPt(r.phi, d, side * 8.6), rand(0.85, 1.05));
         }
       }
@@ -376,7 +390,7 @@ export class World {
       const p = { x: rand(-210, 210), y: rand(-210, 210) };
       const ax = Math.abs(p.x);
       const az = Math.abs(p.y);
-      if (ax < RW + 5 || az < RW + 5 || Math.hypot(p.x, p.y) < R_OUT + 7) continue;
+      if (ax < RW + 8 || az < RW + 8 || Math.hypot(p.x, p.y) < R_OUT + 7) continue;
       if ((ax < 24 && az > 40) || (az < 24 && ax > 40)) continue;
       tree(p, rand(0.9, 1.3));
       n++;
@@ -428,9 +442,11 @@ export class World {
   private buildSigns(): void {
     ROADS.forEach((r, i) => {
       const f = U(r.phi);
-      const right = (d: number) => roadPt(r.phi, d, -(RW + 1.6));
+      const right = (d: number) => roadPt(r.phi, d, inboundEdge(d) - 1.6);
       this.placeSign(SIGNS.speed(25), right(172), f, 1.5);
-      this.placeSign(SIGNS.diagram(i), roadPt(r.phi, 140, -(RW + 3.3)), f, 1.8, 2);
+      this.placeSign(SIGNS.plaque(['RIGHT LANE', 'ENDS'], '#F5C400', 1.3, 0.62), right(160), f, 1.5);
+      this.placeSign(SIGNS.laneEnds(), right(160), f, 2.2);
+      this.placeSign(SIGNS.diagram(i), roadPt(r.phi, 140, inboundEdge(140) - 2.4), f, 1.8, 2);
       this.placeSign(SIGNS.plaque(['20 MPH'], '#F5C400', 1.0, 0.5), right(105), f, 1.55);
       this.placeSign(SIGNS.rotaryWarn(), right(105), f, 2.15);
       this.placeSign(SIGNS.plaque(['AHEAD'], '#F5C400', 1.0, 0.4), right(70), f, 1.6);
@@ -569,7 +585,8 @@ export class World {
     // About three turns of the wheel per radian of front-wheel angle, like a real steering rack.
     const steerTarget = Math.max(-180, Math.min(180, (sim.steer * 180 * 3) / Math.PI));
     cam.steer += (steerTarget - cam.steer) * Math.min(1, dt * 6);
-    cam.yaw += ((sim.input.look ? -1.05 : 0) - cam.yaw) * Math.min(1, dt * 7);
+    // Holding Look turns your head far enough to see over your left shoulder into the blind spot.
+    cam.yaw += ((sim.input.look ? -1.3 : 0) - cam.yaw) * Math.min(1, dt * 7);
 
     const lookH = cam.h + cam.yaw;
     const left = cam.h - Math.PI / 2;
