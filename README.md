@@ -1,3 +1,71 @@
-# first-mile
+# FirstMile
 
-hii
+Your first mile on Massachusetts roads. FirstMile is an in-car driving simulator that helps newcomers to Massachusetts, such as international students and drivers from other states, practice a rotary before they drive a real one.
+
+Built for **Hackachusetts 2026 · Civic track**.
+
+## Features
+
+- **Driver's-seat view.** You see the road through the windshield, with a steering wheel that turns, a speedometer, a rear-view mirror, a nav screen and a dashboard trip clock.
+- **Massachusetts-style signs.** Speed limit, rotary diagram with route shields, rotary warning with a 20 mph advisory, pedestrian crossing, the "State Law" crosswalk sign, Yield and One Way. Each sign pops up with an explanation as you approach it.
+- **Route map.** Choose your start and destination around the rotary (US 20 Allston, MA 2A Cambridge, MA 16 Somerville, MA 2 West Arlington).
+- **Trip times.** Set when you leave and when you need to arrive. Your departure time sets traffic (rush hour, moderate, light) and lighting (day, sunrise, sunset, night). The trip clock runs 20× real time.
+- **Rule checks and coaching.** Yielding to circulating traffic, looking left, stopping for pedestrians, speed, not stopping inside the rotary, and signaling your exit. Arriving late never costs points; speeding does.
+- **Rules and signs guide.** Plain-language explanations of rotary rules and other Massachusetts rules newcomers often miss.
+
+## Getting started
+
+Requires [Node.js](https://nodejs.org/) 18 or newer.
+
+```bash
+npm install
+npm run dev        # start the dev server, then open the printed localhost URL
+npm run build      # type-check and build to dist/
+npm run preview    # serve the production build locally
+npm run typecheck  # type-check only
+```
+
+## Controls
+
+| Action | Button | Keyboard |
+|---|---|---|
+| Gas | Gas | ↑ or W |
+| Brake | Brake | ↓, S or Space |
+| Look left | Look left | ← or A |
+| Signal right | Signal | → or D |
+| Pause | Pause | P |
+| Restart | New run | R |
+
+## Project structure
+
+```
+index.html          Page markup: stage, car cabin overlay, side panel, guide
+src/
+  main.ts           Boot: fonts, world, simulation, frame loop
+  constants.ts      Geometry, roads, speed limits, shared types
+  math.ts           Small 2D helpers
+  path.ts           Drivable paths through the rotary
+  sim.ts            Traffic, pedestrians, player car and rule checks (no DOM or three.js)
+  world.ts          three.js scene, lighting, signs, meshes, cameras and mirror
+  signs.ts          Canvas artwork and explanations for every sign
+  trip.ts           Trip times, traffic and lighting by time of day
+  ui.ts             Controls, instruments, route map, coach feed, guide
+  style.css         Styles
+```
+
+`sim.ts` talks to the page only through the `SimHooks` interface, so the simulation can be tested headlessly or reused with a different front end.
+
+## Deploying to GitHub Pages
+
+`vite.config.ts` uses a relative base, so `dist/` works from any sub-path. Run `npm run build` and publish the `dist/` folder, for example with a GitHub Actions Pages workflow.
+
+## Notes
+
+- The rotary is a generic practice layout, not one specific real intersection. Route shields and sign styles follow Massachusetts conventions.
+- Rules are summarized for practice. Check the official Massachusetts Driver's Manual from the RMV before a road test.
+- Rush-hour windows and lighting are simple approximations for late-October Boston, not live data.
+- Coach feedback is scripted. A full build would use an LLM grounded in the Massachusetts Driver's Manual, real intersections from OpenStreetMap, and practice hotspots ranked by MassDOT crash data.
+
+## Tech
+
+TypeScript (strict), [Vite](https://vitejs.dev/), [three.js](https://threejs.org/) r128, Overpass font from Google Fonts.

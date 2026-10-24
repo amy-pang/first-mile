@@ -1,0 +1,68 @@
+import './style.css';
+import { Simulation } from './sim';
+import { UI } from './ui';
+import { World } from './world';
+
+async function fontsReady(timeoutMs: number): Promise<void> {
+  if (!document.fonts?.load) return;
+  try {
+    await Promise.race([
+      Promise.all([document.fonts.load('900 40px Overpass'), document.fonts.load('800 40px Overpass')]),
+      new Promise((resolve) => setTimeout(resolve, timeoutMs)),
+    ]);
+  } catch {
+    /* fall back to system fonts */
+  }
+}
+
+function showFailure(stage: HTMLElement): void {
+  const f = document.createElement('div');
+  f.className = 'fail';
+  f.textContent = 'The 3D view could not load in this browser. Try refreshing, or open the page in a current version of Chrome, Safari, Edge or Firefox.';
+  stage.append(f);
+}
+
+async function boot(): Promise<void> {
+  const stage = document.getElementById('stage')!;
+  const ui = new UI();
+  await fontsReady(1800);
+  ui.fillGuideImages();
+
+  let world: World;
+  try {
+    world = new World(document.getElementById('view') as HTMLCanvasElement, stage, document.getElementById('mirror')!);
+  } catch {
+    showFailure(stage);
+    return;
+  }
+
+  const sim = new Simulation(ui);
+  sim.destIdx = 1 + Math.floor(Math.random() * 3);
+  ui.attach(sim, world);
+
+  world.resize();
+  new ResizeObserver(() => world.resize()).observe(stage);
+  world.build();
+  ui.restart();
+
+  // Let traffic build up before the first frame so the rotary is already busy.
+  for (let i = 0; i < 900; i++) sim.step(0.05);
+  world.resetView(sim.player.pose.h);
+
+  let last = performance.now();
+  const frame = (t: number) => {
+    const dt = Math.min(0.05, (t - last) / 1000);
+    last = t;
+    if (!ui.paused) sim.step(dt);
+    world.sync(sim, ui.paused ? 0 : dt);
+    world.render();
+    ui.update(dt, t);
+    requestAnimationFrame(frame);
+  };
+  world.sync(sim, 0.05);
+  world.render();
+  ui.update(0, 0);
+  requestAnimationFrame(frame);
+}
+
+void boot();
