@@ -1,5 +1,5 @@
 /** Everything on the page outside the 3D view: controls, cabin instruments, route map, trip times, coach feed and the guide. */
-import type { AuthManager, DriveRun } from './auth';
+import type { AuthManager } from './auth';
 import { DEG, DEND, DS, DY, MPHF, ORD, RC, RH, R_IN, ROADS, RW, TAU, type Road } from './constants';
 import { bikeMultiplierAt } from './bike-density';
 import { CRASH_STATS } from './crash-stats';
@@ -46,16 +46,6 @@ const toMap = (p: { x: number; y: number }): { x: number; y: number } => {
 };
 
 const LABEL: Record<CoachKind, string> = { good: 'Good', warn: 'Tip', bad: 'Violation', info: 'Mission', sign: 'Sign' };
-
-type ScoreCol = 'right_of_way' | 'speed_control' | 'following_dist' | 'lane_pos_steer' | 'signals_checks' | 'blind_spots';
-const RUN_CATS: readonly { col: ScoreCol; label: string; max: number }[] = [
-  { col: 'right_of_way', label: 'Right of way', max: 30 },
-  { col: 'speed_control', label: 'Speed control', max: 20 },
-  { col: 'following_dist', label: 'Following dist', max: 15 },
-  { col: 'lane_pos_steer', label: 'Lane & steer', max: 15 },
-  { col: 'signals_checks', label: 'Signals', max: 10 },
-  { col: 'blind_spots', label: 'Blind spots', max: 10 },
-];
 
 export class UI implements SimHooks {
   private sim!: Simulation;
@@ -973,189 +963,89 @@ export class UI implements SimHooks {
     host.innerHTML = '';
 
     if (!this.auth?.user) {
-      const p = document.createElement('p');
-      p.className = 'runs-empty';
-      p.textContent = 'Sign in to track your progress across runs.';
-      const btn = document.createElement('button');
-      btn.className = 'btn-primary';
-      btn.style.alignSelf = 'flex-start';
-      btn.textContent = 'Sign in';
-      btn.addEventListener('click', () => document.getElementById('auth-btn')!.click());
-      host.append(p, btn);
+      host.innerHTML = '<p class="runs-empty">Sign in to see your drive history.</p>';
       return;
     }
 
-    const loading = document.createElement('p');
-    loading.className = 'runs-loading';
-    loading.textContent = 'Loading…';
-    host.append(loading);
-
-    const { runs, error } = await this.auth.fetchRuns();
+    host.innerHTML = '<p class="runs-loading">Loading…</p>';
+    let runs: Awaited<ReturnType<AuthManager['fetchRuns']>>['runs'] = [];
+    let error: string | null = null;
+    try {
+      const res = await this.auth.fetchRuns();
+      runs = res.runs;
+      error = res.error;
+    } catch (e) {
+      error = e instanceof Error ? e.message : 'Could not load your drives.';
+    }
     host.innerHTML = '';
 
     if (error) {
-      const p = document.createElement('p');
-      p.className = 'runs-error';
-      p.textContent = `Could not load runs: ${error}`;
-      host.append(p);
+      host.innerHTML = `<p class="runs-error">Error: ${error}</p>`;
       return;
     }
 
-    if (runs.length >= 5) {
-      host.append(this.buildInsights(runs));
-    } else if (runs.length > 0) {
-      const note = document.createElement('p');
-      note.className = 'runs-note';
-      const left = 5 - runs.length;
-      note.textContent = `Complete ${left} more run${left !== 1 ? 's' : ''} to unlock your coaching summary.`;
-      host.append(note);
-    }
-
-    const section = document.createElement('section');
-    section.className = 'card runs-history-card';
-    const h = document.createElement('div');
-    h.className = 'eyebrow';
-    h.textContent = 'Run history';
-    section.append(h);
-
     if (runs.length === 0) {
-      const p = document.createElement('p');
-      p.className = 'runs-empty';
-      p.textContent = 'Complete a drive to see your history here.';
-      section.append(p);
-    } else {
-      const list = document.createElement('div');
-      list.className = 'runs-list';
-      for (const run of runs) list.append(this.buildRunRow(run));
-      section.append(list);
-    }
-    host.append(section);
-  }
-
-  private buildRunRow(run: DriveRun): HTMLElement {
-    const pass = run.overall_score >= 80;
-    const row = document.createElement('div');
-    row.className = `run-row ${pass ? 'pass' : 'fail'}`;
-
-    const dateEl = document.createElement('div');
-    dateEl.className = 'run-date';
-    const d = new Date(run.created_at);
-    dateEl.textContent = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    const timeEl = document.createElement('small');
-    timeEl.textContent = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-    dateEl.append(document.createElement('br'), timeEl);
-
-    const scoreEl = document.createElement('div');
-    scoreEl.className = 'run-score-col';
-    const num = document.createElement('b');
-    num.textContent = String(run.overall_score);
-    const badge = document.createElement('span');
-    badge.className = `run-badge ${pass ? 'pass' : 'fail'}`;
-    badge.textContent = pass ? 'Pass' : 'Fail';
-    scoreEl.append(num, badge);
-
-    const bars = document.createElement('div');
-    bars.className = 'run-bars';
-    for (const c of RUN_CATS) {
-      const frac = run[c.col] / c.max;
-      const col = document.createElement('div');
-      col.className = 'run-bar-col';
-      col.title = `${c.label}: ${run[c.col]}/${c.max}`;
-      const fill = document.createElement('span');
-      fill.style.height = `${Math.round(frac * 100)}%`;
-      fill.className = frac < 0.5 ? 'low' : frac < 0.85 ? 'mid' : '';
-      col.append(fill);
-      bars.append(col);
+      host.innerHTML = '<p class="runs-empty">No drives yet. Complete a drive to see your history here.</p>';
+      return;
     }
 
-    row.append(dateEl, scoreEl, bars);
-    return row;
-  }
+    // Header + summary
+    const header = document.createElement('div');
+    header.className = 'runs-header';
+    const title = document.createElement('h2');
+    title.className = 'runs-title';
+    title.textContent = 'My Drives';
+    const passCount = runs.filter((r) => r.overall_score >= 80).length;
+    const best = Math.max(...runs.map((r) => r.overall_score));
+    const summary = document.createElement('p');
+    summary.className = 'runs-summary';
+    summary.textContent = `${runs.length} drive${runs.length === 1 ? '' : 's'} · ${passCount} passed · best score ${best}`;
+    header.append(title, summary);
+    host.append(header);
 
-  private buildInsights(runs: DriveRun[]): HTMLElement {
-    const section = document.createElement('section');
-    section.className = 'card runs-insights';
+    // Table
+    const table = document.createElement('table');
+    table.className = 'runs-table';
 
-    const h = document.createElement('div');
-    h.className = 'eyebrow';
-    h.textContent = 'Your coaching summary';
-    section.append(h);
-
-    // Overall stats
-    const avgScore = Math.round(runs.reduce((s, r) => s + r.overall_score, 0) / runs.length);
-    const passes = runs.filter((r) => r.overall_score >= 80).length;
-
-    const statsRow = document.createElement('div');
-    statsRow.className = 'insight-stats';
-    const chip = (val: string, label: string, cls = '') => {
-      const d = document.createElement('div');
-      d.className = `stat-chip${cls ? ' ' + cls : ''}`;
-      const b = document.createElement('b');
-      b.textContent = val;
-      const s = document.createElement('span');
-      s.textContent = label;
-      d.append(b, s);
-      return d;
-    };
-    statsRow.append(
-      chip(String(avgScore), 'average score', avgScore >= 80 ? 'ok' : avgScore >= 60 ? '' : 'bad'),
-      chip(`${passes} / ${runs.length}`, 'runs passed'),
-    );
-    section.append(statsRow);
-
-    // Category averages
-    const catLabel = document.createElement('div');
-    catLabel.className = 'insight-subhead';
-    catLabel.textContent = 'Category averages';
-    section.append(catLabel);
-
-    const catAvgs = RUN_CATS.map((c) => {
-      const avg = runs.reduce((s, r) => s + r[c.col], 0) / runs.length;
-      return { ...c, avg, frac: avg / c.max };
-    });
-
-    const catList = document.createElement('ul');
-    catList.className = 'cats';
-    for (const c of catAvgs) {
-      catList.append(this.catRow(c.label, `${Math.round(c.avg)}/${c.max}`, c.frac));
+    const thead = document.createElement('thead');
+    const headRow = document.createElement('tr');
+    for (const label of ['Date', 'Time', 'Score', 'Result']) {
+      const th = document.createElement('th');
+      th.textContent = label;
+      if (label === 'Score') th.className = 'col-num';
+      headRow.append(th);
     }
-    section.append(catList);
+    thead.append(headRow);
+    table.append(thead);
 
-    // Common violations from additional_flags
-    const allFlags = runs
-      .flatMap((r) => (r.additional_flags ? r.additional_flags.split(', ') : []))
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
+    const tbody = document.createElement('tbody');
+    for (const run of runs) {
+      const pass = run.overall_score >= 80;
+      const d = new Date(run.created_at);
+      const tr = document.createElement('tr');
 
-    const flagLabel = document.createElement('div');
-    flagLabel.className = 'insight-subhead';
+      const dateCell = document.createElement('td');
+      dateCell.textContent = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
-    if (allFlags.length === 0) {
-      flagLabel.textContent = 'Violations';
-      const p = document.createElement('p');
-      p.className = 'insight-clean';
-      p.textContent = `No violations logged across ${runs.length} runs.`;
-      section.append(flagLabel, p);
-    } else {
-      flagLabel.textContent = 'Most common violations';
-      const counts = new Map<string, number>();
-      for (const f of allFlags) counts.set(f, (counts.get(f) ?? 0) + 1);
-      const top = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
-      const flagList = document.createElement('ol');
-      flagList.className = 'insight-flags';
-      for (const [flag, count] of top) {
-        const li = document.createElement('li');
-        li.textContent = flag;
-        const badge = document.createElement('span');
-        badge.className = 'flag-count';
-        badge.textContent = `×${count}`;
-        li.append(badge);
-        flagList.append(li);
-      }
-      section.append(flagLabel, flagList);
+      const timeCell = document.createElement('td');
+      timeCell.className = 'col-muted';
+      timeCell.textContent = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+
+      const scoreCell = document.createElement('td');
+      scoreCell.className = 'col-num';
+      scoreCell.textContent = String(run.overall_score);
+
+      const resultCell = document.createElement('td');
+      const badge = document.createElement('span');
+      badge.className = `run-badge ${pass ? 'is-pass' : 'is-fail'}`;
+      badge.textContent = pass ? 'Pass' : 'Fail';
+      resultCell.append(badge);
+
+      tr.append(dateCell, timeCell, scoreCell, resultCell);
+      tbody.append(tr);
     }
-
-    return section;
+    table.append(tbody);
+    host.append(table);
   }
 
   private buildCrashStats(): void {
