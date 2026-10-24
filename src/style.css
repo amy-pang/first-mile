@@ -56,6 +56,10 @@ h1 .plate{display:inline-block; margin-left:.06em; background:var(--guide); colo
 .cabin{position:absolute; inset:0; pointer-events:none}
 .cabin svg.frame{position:absolute; inset:0; width:100%; height:100%}
 .mirror{position:absolute; top:3%; left:50%; transform:translateX(-50%); width:24%; aspect-ratio:3.6/1; border:5px solid var(--cab); border-radius:10px; box-shadow:0 3px 8px rgba(0,0,0,.35), inset 0 0 0 1px rgba(255,255,255,.12)}
+.side-mirror{position:absolute; top:51%; width:12.5%; aspect-ratio:1.55; border:4px solid var(--cab); box-shadow:0 3px 8px rgba(0,0,0,.35), inset 0 0 0 1px rgba(255,255,255,.12)}
+.side-mirror.left{left:1%; border-radius:18px 8px 8px 26px}
+.side-mirror.right{right:1%; border-radius:8px 18px 26px 8px}
+@media (max-width:600px){ .side-mirror{width:14%; border-width:3px} }
 .mirror::before{content:""; position:absolute; left:50%; top:-14px; width:8px; height:10px; transform:translateX(-50%); background:var(--cab); border-radius:2px}
 .wheel{position:absolute; left:13%; width:33%; aspect-ratio:1; bottom:-23%; transform-origin:50% 50%}
 .cluster{position:absolute; left:20.5%; bottom:7.5%; width:20%}
@@ -88,12 +92,35 @@ h1 .plate{display:inline-block; margin-left:.06em; background:var(--guide); colo
 .look-tag.on{opacity:1}
 .fail{position:absolute; inset:0; display:grid; place-items:center; padding:20px; text-align:center; color:var(--fg)}
 
-.result{position:absolute; inset:0; display:grid; place-items:center; background:var(--scrim); padding:16px}
-.result-card{background:var(--surface); color:var(--fg); border-radius:14px; padding:20px 22px; width:min(340px,100%); display:flex; flex-direction:column; gap:10px; box-shadow:0 18px 40px rgba(0,0,0,.35)}
+.result{position:absolute; inset:0; display:grid; place-items:center; background:var(--scrim); padding:16px; overflow:auto}
+.result-card{background:var(--surface); color:var(--fg); border-radius:14px; padding:20px 22px; width:min(460px,100%); display:flex; flex-direction:column; gap:10px; box-shadow:0 18px 40px rgba(0,0,0,.35)}
 .result-card h2{margin:0; font-family:var(--display); font-weight:900; font-size:30px; line-height:1}
 .result-card .big{font-family:var(--mono); font-weight:700; font-size:14px; color:var(--muted); font-variant-numeric:tabular-nums}
 .result-card p{margin:0; font-size:14px}
 .result-card.pass h2{color:var(--ok)} .result-card.fail-card h2{color:var(--yield)}
+.cats{list-style:none; margin:0; padding:0; display:grid; grid-template-columns:1fr 1fr; gap:6px 14px}
+.cats li{display:grid; grid-template-columns:minmax(0,1fr) auto; gap:2px 8px; font-size:12.5px; align-items:baseline}
+.cats li b{font-family:var(--mono); font-size:12px; font-variant-numeric:tabular-nums}
+.cats li i{grid-column:1/-1; height:5px; border-radius:3px; background:var(--line); overflow:hidden; display:block}
+.cats li i span{display:block; height:100%; background:var(--ok); border-radius:3px}
+.cats li.low i span{background:var(--yield)} .cats li.mid i span{background:var(--amber)}
+.cats li small{grid-column:1/-1; color:var(--muted); font-size:12.5px}
+.cats.wide{grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px 20px}
+.cats.wide li{font-size:14px}
+.score-card{margin-top:16px}
+.score-card p{margin:0; font-size:14.5px}
+@container (max-width:420px){ .cats{grid-template-columns:1fr} }
+.debrief{display:grid; grid-template-columns:clamp(110px,24cqi,180px) minmax(0,1fr); gap:12px; align-items:start}
+.debrief .map{cursor:default}
+.marks{margin:0; padding-left:20px; font-size:13px; line-height:1.35; display:flex; flex-direction:column; gap:3px}
+.marks li::marker{font-family:var(--mono); font-weight:700; color:var(--yield)}
+.marks li.clean{list-style:none; margin-left:-20px; color:var(--ok); font-weight:700}
+@container (max-width:420px){ .debrief{grid-template-columns:90px minmax(0,1fr)} .result-card{padding:14px 16px} .result-card h2{font-size:24px} }
+.wipers{position:absolute; inset:0; pointer-events:none; overflow:hidden}
+.wipers i{position:absolute; top:71%; height:max(3px,.4cqi); width:40%; background:#14171a; border-radius:2px; transform-origin:0 50%; animation:wipe 1.4s ease-in-out infinite; box-shadow:0 1px 0 rgba(255,255,255,.08)}
+.wipers i:nth-child(1){left:14%} .wipers i:nth-child(2){left:50%}
+@keyframes wipe{0%,100%{transform:rotate(-3deg)} 50%{transform:rotate(-118deg)}}
+@media (prefers-reduced-motion:reduce){ .wipers i{animation-duration:4s} }
 
 .rail{display:flex; flex-direction:column; gap:14px; min-width:0}
 .card{background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:14px 16px; display:flex; flex-direction:column; gap:10px; min-width:0}
@@ -117,6 +144,10 @@ h1 .plate{display:inline-block; margin-left:.06em; background:var(--guide); colo
 .times label{display:flex; flex-direction:column; gap:3px; font-family:var(--mono); font-size:11px; font-weight:700; letter-spacing:.07em; text-transform:uppercase; color:var(--muted)}
 .times input{font:inherit; font-family:var(--mono); font-size:16px; font-weight:700; letter-spacing:0; text-transform:none; color:var(--fg); background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:7px 9px 5px; min-width:0; width:100%}
 .times input:focus-visible{outline:2px solid var(--amber); outline-offset:1px}
+.times select{font:inherit; font-family:var(--mono); font-size:16px; font-weight:700; letter-spacing:0; text-transform:none; color:var(--fg); background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:7px 9px 5px; min-width:0; width:100%}
+.times select:focus-visible{outline:2px solid var(--amber); outline-offset:1px}
+.times label.check{flex-direction:row; align-items:center; gap:8px; align-self:end; padding-bottom:9px; text-transform:none; letter-spacing:0; font-family:var(--body); font-size:14px; color:var(--fg); cursor:pointer}
+.times label.check input{width:18px; height:18px; padding:0; accent-color:var(--guide); cursor:pointer}
 .chips{display:flex; flex-wrap:wrap; gap:6px}
 .chip{font-size:12px; font-weight:700; border-radius:999px; padding:3px 10px 1px; border:1px solid var(--line); color:var(--fg); background:var(--bg)}
 .chip.rush{border-color:var(--yield); color:var(--yield)}
@@ -145,12 +176,16 @@ h1 .plate{display:inline-block; margin-left:.06em; background:var(--guide); colo
 .score b{font-family:var(--mono); font-size:26px; font-variant-numeric:tabular-nums}
 .zone{font-size:13px; color:var(--muted); text-align:right}
 .zone b{display:block; color:var(--fg); font-family:var(--display); font-weight:800; font-size:15px}
-.pad{display:grid; grid-template-columns:1fr 1fr; gap:8px}
+.pad{display:grid; grid-template-columns:repeat(6,1fr); gap:8px}
+.pad .btn{grid-column:span 3; min-width:0; padding-inline:4px}
+.pad .btn.look, .pad .btn.signal, .pad .btn.lights{grid-column:span 2; font-size:14px; white-space:nowrap}
 .btn{font:inherit; font-family:var(--display); font-weight:800; font-size:16px; height:58px; border-radius:10px; border:2px solid transparent; cursor:pointer; user-select:none; -webkit-user-select:none; touch-action:none; -webkit-touch-callout:none; transition:transform .06s, filter .1s}
 .btn:focus-visible{outline:3px solid var(--amber); outline-offset:2px}
 .btn.brake{background:var(--yield); color:var(--sign-white)}
 .btn.gas{background:var(--ok); color:var(--sign-white)}
 .btn.signal{background:transparent; color:var(--fg); border-color:var(--amber)}
+.btn.lights{background:transparent; color:var(--fg); border-color:#3FA9F5}
+.btn.lights[aria-pressed="true"]{background:#3FA9F5; color:var(--sign-ink)}
 .btn.signal[aria-pressed="true"]{background:var(--amber); color:var(--sign-ink); animation:blink 1s steps(2,start) infinite}
 .btn.look{background:transparent; color:var(--fg); border-color:var(--line)}
 .btn.steer{background:var(--fg); color:var(--bg)}

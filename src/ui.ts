@@ -1,10 +1,11 @@
 /** Everything on the page outside the 3D view: controls, cabin instruments, route map, trip times, coach feed and the guide. */
-import { DEG, DEND, MPHF, ORD, RC, RH, R_IN, ROADS, RW, TAU, type Road } from './constants';
+import { DEG, DEND, DS, DY, MPHF, ORD, RC, RH, R_IN, ROADS, RW, TAU, type Road } from './constants';
 import { roadPt } from './math';
 import { poseAt } from './path';
-import type { CoachKind, RunResult, SignEventKey, SimHooks, Simulation } from './sim';
+import type { CarAudio } from './audio';
+import { CATEGORIES, type CoachKind, type RunResult, type SignEventKey, type SimHooks, type Simulation } from './sim';
 import { diagramRule, GUIDE_ORDER, SIGN_INFO, SIGNS, signImg } from './signs';
-import { conditionsFor, fmtT, parseT, PHASE_LABEL, TRAFFIC_LABEL } from './trip';
+import { conditionsFor, fmtT, parseT, PHASE_LABEL, TRAFFIC_LABEL, WEATHER_LABEL, type Weather } from './trip';
 import type { World } from './world';
 
 const el = <T extends HTMLElement = HTMLElement>(id: string): T => {
@@ -20,11 +21,24 @@ const svgEl = (tag: string, attrs: Record<string, string | number>, parent?: Ele
   return e;
 };
 
+/**
+ * World point to route-map point. The map isn't to scale: the ring is drawn larger (radius 44 for RC)
+ * and the approach roads are squeezed, with the yield line at about 58 and the road starts at about 150.
+ */
+const toMap = (p: { x: number; y: number }): { x: number; y: number } => {
+  const r = Math.hypot(p.x, p.y);
+  if (r < 1e-6) return { x: 150, y: 150 };
+  const k = 44 / RC;
+  const m = r <= DY ? r * k : DY * k + ((r - DY) * (150 - DY * k)) / (DS - DY);
+  return { x: 150 + (p.x / r) * m, y: 150 + (p.y / r) * m };
+};
+
 const LABEL: Record<CoachKind, string> = { good: 'Good', warn: 'Tip', bad: 'Violation', info: 'Mission', sign: 'Sign' };
 
 export class UI implements SimHooks {
   private sim!: Simulation;
   private world!: World;
+  private audio!: CarAudio;
 
   paused = false;
   private planStart = 0;
@@ -40,11 +54,14 @@ export class UI implements SimHooks {
 
   constructor() {
     this.buildGuide();
+    const rules = el('score-rules');
+    for (const c of CATEGORIES) rules.append(this.catRow(c.label, `${c.weight} pts`, 1, c.what));
   }
 
-  attach(sim: Simulation, world: World): void {
+  attach(sim: Simulation, world: World, audio: CarAudio): void {
     this.sim = sim;
     this.world = world;
+    this.audio = audio;
     this.planDest = sim.destIdx;
     this.buildGauge();
     this.bindControls();
@@ -60,8 +77,11 @@ export class UI implements SimHooks {
       dest: sim.destIdx,
       leave: t.ok ? t.l! : sim.trip.leave,
       arrive: t.ok ? t.a! : sim.trip.arrive,
+      weather: this.planWeather(),
+      ems: el<HTMLInputElement>('t-ems').checked,
     });
-    this.world.applyLighting(sim.trip.phase);
+    this.world.applyLighting(sim.trip.phase, sim.weather);
+    el('wipers').hidden = sim.weather !== 'rain';
     this.world.resetView(sim.player.pose.h);
     this.cardQueue = [];
     this.cardShown = false;
@@ -100,6 +120,7 @@ export class UI implements SimHooks {
     li.append(tag, div);
     el('feed').prepend(li);
     if (quiet) return;
+    this.audio.chime(kind);
 
     const toast = el('toast');
     toast.className = `toast show ${kind}`;
@@ -138,6 +159,13 @@ export class UI implements SimHooks {
     el('b-signal').setAttribute('aria-pressed', on ? 'true' : 'false');
   }
 
+  lightsChanged(on: boolean): void {
+    el('b-lights').setAttribute('aria-pressed', on ? 'true' : 'false');
+    el('ind-lights').setAttribute('fill', on ? '#3FA9F5' : '#2A3B30');
+    el('ind-lights').setAttribute('stroke', on ? '#3FA9F5' : '#2A3B30');
+    this.world.setHeadlights(on);
+  }
+
   scoreChanged(score: number): void {
     el('score').textContent = String(score);
   }
@@ -150,8 +178,73 @@ export class UI implements SimHooks {
     el('result-card').className = `result-card ${r.pass ? 'pass' : 'fail-card'}`;
     el('r-title').textContent = r.title;
     el('r-score').textContent = `Score ${this.sim.score} / 100 · top speed ${Math.round(this.sim.topMph)} mph`;
+    const cats = el('r-cats');
+    cats.innerHTML = '';
+    for (const c of this.sim.breakdown()) cats.append(this.catRow(c.label, `${c.got}/${c.weight}`, c.got / c.weight));
     el('r-body').textContent = r.body;
+    this.renderDebrief();
     el('result').hidden = false;
+  }
+
+  /** One category row: name, points and a bar. */
+  private catRow(label: string, pts: string, frac: number, what?: string): HTMLLIElement {
+    const li = document.createElement('li');
+    li.className = frac < 0.5 ? 'low' : frac < 0.85 ? 'mid' : '';
+    const name = document.createElement('span');
+    name.textContent = label;
+    const b = document.createElement('b');
+    b.textContent = pts;
+    const bar = document.createElement('i');
+    const fill = document.createElement('span');
+    fill.style.width = `${Math.round(frac * 100)}%`;
+    bar.append(fill);
+    li.append(name, b, bar);
+    if (what) {
+      const sm = document.createElement('small');
+      sm.textContent = what;
+      li.append(sm);
+    }
+    return li;
+  }
+
+  /** Post-run map: the line you drove, with a numbered dot wherever a rule was broken. */
+  private renderDebrief(): void {
+    const sim = this.sim;
+    const map = el('r-map');
+    map.innerHTML = '';
+    this.drawMapBase(map);
+    const at = (p: { x: number; y: number }) => {
+      const q = toMap(p);
+      return `${q.x.toFixed(1)} ${q.y.toFixed(1)}`;
+    };
+    // Only the part that fits on the 300-unit map; the far ends of the roads run off its edges.
+    const pts = sim.trail.filter((p) => Math.hypot(p.x, p.y) < 210);
+    if (pts.length > 1) {
+      svgEl('path', {
+        d: 'M' + pts.map(at).join(' L'), fill: 'none', stroke: 'var(--route)', 'stroke-width': 4,
+        'stroke-linecap': 'round', 'stroke-linejoin': 'round',
+      }, map);
+    }
+    const list = el('r-marks');
+    list.innerHTML = '';
+    sim.marks.forEach((m, i) => {
+      const q = toMap(m);
+      const x = Math.max(10, Math.min(290, q.x));
+      const y = Math.max(10, Math.min(290, q.y));
+      svgEl('circle', { cx: x, cy: y, r: 10, fill: 'var(--yield)', stroke: 'var(--surface)', 'stroke-width': 2 }, map);
+      const n = svgEl('text', { x, y: y + 4, 'text-anchor': 'middle', 'font-size': 11, 'font-weight': 900 }, map);
+      n.textContent = String(i + 1);
+      n.style.fill = 'var(--sign-white)';
+      const li = document.createElement('li');
+      li.textContent = m.title;
+      list.append(li);
+    });
+    if (!sim.marks.length) {
+      const li = document.createElement('li');
+      li.className = 'clean';
+      li.textContent = 'No mistakes: clean run';
+      list.append(li);
+    }
   }
 
   /* ---------- per-frame ---------- */
@@ -212,7 +305,7 @@ export class UI implements SimHooks {
     const zoneName = zone === 'approach' ? 'Approach' : zone === 'rotary' ? 'In the rotary' : 'Leaving';
     el('g-mph').textContent = String(mph);
     el('g-zone').textContent = zone === 'rotary' ? 'ADVISORY 20' : 'LIMIT 25';
-    el('g-mph').setAttribute('fill', (zone === 'rotary' && mph > 22) || mph > 30 ? '#FF6B6B' : '#E8ECEF');
+    el('g-mph').setAttribute('fill', mph > (zone === 'rotary' ? 22 : 27) ? '#FF6B6B' : '#E8ECEF');
     el('needle').setAttribute('transform', `rotate(${(-120 + (Math.min(60, P.v * MPHF) / 60) * 240).toFixed(1)} 100 84)`);
     el('zone').textContent = zoneName;
     el('zone-sub').textContent = zone === 'rotary' ? 'Advisory 20 mph' : 'Limit 25 mph';
@@ -282,11 +375,12 @@ export class UI implements SimHooks {
       }
       g.stroke();
     }
+    const flash = Math.floor(performance.now() / 250) % 2 === 0;
     for (const c of sim.cars) {
       if (c.isPlayer) continue;
-      g.fillStyle = c.braking ? '#FF6B5B' : '#E6E9EC';
+      g.fillStyle = c.ems ? (flash ? '#FF3B3B' : '#3B7BFF') : c.braking ? '#FF6B5B' : '#E6E9EC';
       g.beginPath();
-      g.arc(c.pose.x, c.pose.y, 1.6, 0, TAU);
+      g.arc(c.pose.x, c.pose.y, c.ems ? 2.4 : 1.6, 0, TAU);
       g.fill();
     }
     g.fillStyle = '#F2B705';
@@ -332,6 +426,18 @@ export class UI implements SimHooks {
     }
   }
 
+  private setSound(on: boolean): void {
+    this.audio.setEnabled(on);
+    this.renderSound();
+  }
+
+  private renderSound(): void {
+    const on = this.audio.enabled;
+    const b = el('b-sound');
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    b.textContent = on ? 'Sound on' : 'Sound off';
+  }
+
   private bindControls(): void {
     const input = this.sim.input;
     const hold = (btn: HTMLElement, key: keyof typeof input) => {
@@ -351,8 +457,11 @@ export class UI implements SimHooks {
     hold(el('b-left'), 'left');
     hold(el('b-right'), 'right');
     el('b-signal').addEventListener('click', () => this.sim.setSignal(!this.sim.signal));
+    el('b-lights').addEventListener('click', () => this.sim.setHeadlights(!this.sim.headlights));
     el('b-restart').addEventListener('click', () => this.restart());
     el('b-pause').addEventListener('click', () => this.setPause(!this.paused));
+    el('b-sound').addEventListener('click', () => this.setSound(!this.audio.enabled));
+    this.renderSound();
     el('r-again').addEventListener('click', () => this.restart());
 
     const KEYS: Record<keyof typeof input, string[]> = {
@@ -372,6 +481,8 @@ export class UI implements SimHooks {
       if (SIG.includes(e.key)) { if (!e.repeat) this.sim.setSignal(!this.sim.signal); e.preventDefault(); }
       else if (e.key === 'r' || e.key === 'R') this.restart();
       else if ((e.key === 'p' || e.key === 'P') && !e.repeat) this.setPause(!this.paused);
+      else if ((e.key === 'm' || e.key === 'M') && !e.repeat) this.setSound(!this.audio.enabled);
+      else if ((e.key === 'l' || e.key === 'L') && !e.repeat) this.sim.setHeadlights(!this.sim.headlights);
     });
     window.addEventListener('keyup', (e) => {
       for (const k of Object.keys(KEYS) as (keyof typeof input)[]) if (KEYS[k].includes(e.key)) input[k] = false;
@@ -380,6 +491,10 @@ export class UI implements SimHooks {
   }
 
   /* ---------- route map and trip times ---------- */
+
+  private planWeather(): Weather {
+    return el<HTMLSelectElement>('t-weather').value === 'rain' ? 'rain' : 'clear';
+  }
 
   private readPlanTimes(): { l: number | null; a: number | null; ok: boolean } {
     const l = parseT(el<HTMLInputElement>('t-leave').value);
@@ -392,6 +507,8 @@ export class UI implements SimHooks {
     el('pick-dest').addEventListener('click', () => this.setPickMode('dest'));
     el('t-leave').addEventListener('input', () => this.renderConditions());
     el('t-arrive').addEventListener('input', () => this.renderConditions());
+    el('t-weather').addEventListener('change', () => this.renderConditions());
+    el('t-ems').addEventListener('change', () => this.renderConditions());
     el('b-drive').addEventListener('click', () => {
       if (!this.readPlanTimes().ok) {
         this.renderConditions();
@@ -405,6 +522,8 @@ export class UI implements SimHooks {
     el('b-surprise').addEventListener('click', () => {
       this.planStart = Math.floor(Math.random() * 4);
       this.planDest = (this.planStart + 1 + Math.floor(Math.random() * 3)) % 4;
+      el<HTMLSelectElement>('t-weather').value = Math.random() < 0.3 ? 'rain' : 'clear';
+      el<HTMLInputElement>('t-ems').checked = Math.random() < 0.4;
       this.sim.startIdx = this.planStart;
       this.sim.destIdx = this.planDest;
       this.restart();
@@ -450,9 +569,14 @@ export class UI implements SimHooks {
     };
     chip(TRAFFIC_LABEL[c.traffic], c.traffic);
     chip(PHASE_LABEL[c.phase]);
+    const w = this.planWeather();
+    if (w === 'rain') chip(WEATHER_LABEL[w]);
+    const ems = el<HTMLInputElement>('t-ems').checked;
+    if (ems) chip('Ambulance on the way');
     if (ok && a !== null) chip(`${a - l} min to get there`);
     const sim = this.sim;
-    const pending = this.planStart !== sim.startIdx || this.planDest !== sim.destIdx || l !== sim.trip.leave || a !== sim.trip.arrive;
+    const pending = this.planStart !== sim.startIdx || this.planDest !== sim.destIdx || l !== sim.trip.leave || a !== sim.trip.arrive
+      || w !== sim.weather || ems !== sim.emsPlanned;
     el('b-drive').dataset.pending = String(pending);
   }
 
@@ -468,27 +592,7 @@ export class UI implements SimHooks {
     const defs = svgEl('defs', {}, map);
     const mk = svgEl('marker', { id: 'arw', viewBox: '0 0 10 10', refX: 5, refY: 5, markerWidth: 4, markerHeight: 4, orient: 'auto' }, defs);
     svgEl('path', { d: 'M0 0 L10 5 L0 10 z', fill: 'var(--route)' }, mk);
-    svgEl('rect', { x: 0, y: 0, width: 300, height: 300, fill: 'var(--map-land)' }, map);
-    for (let x = 4; x < 300; x += 26) {
-      for (let y = 4; y < 300; y += 26) {
-        const cx = x + 11;
-        const cy = y + 11;
-        if (Math.abs(cx - 150) < 24 || Math.abs(cy - 150) < 24 || Math.hypot(cx - 150, cy - 150) < 70) continue;
-        const park = (x * 7 + y * 3) % 9 === 0;
-        svgEl('rect', { x, y, width: 22, height: 22, rx: 3, fill: park ? 'var(--map-park)' : 'var(--map-block)' }, map);
-      }
-    }
-    const roadLine = (stroke: string, width: number) => {
-      for (const r of ROADS) {
-        const a = mp(r.phi, 40, 0);
-        const b = mp(r.phi, 160, 0);
-        svgEl('line', { x1: a.x, y1: a.y, x2: b.x, y2: b.y, stroke, 'stroke-width': width }, map);
-      }
-      svgEl('circle', { cx: 150, cy: 150, r: 44, fill: 'none', stroke, 'stroke-width': width }, map);
-    };
-    roadLine('var(--map-casing)', 22);
-    roadLine('var(--map-road)', 18);
-    svgEl('circle', { cx: 150, cy: 150, r: 34, fill: 'var(--map-park)' }, map);
+    this.drawMapBase(map);
 
     // Planned route: in on the right-hand lane, counterclockwise round, out on the right-hand lane.
     const ps = ROADS[this.planStart].phi;
@@ -558,6 +662,35 @@ export class UI implements SimHooks {
     line.append(b1, document.createTextNode(' → '), b2,
       document.createTextNode(`: enter from ${S.town}, take the ${ORD[n - 1]} exit (Route ${D.route}${D.dir ? ` ${D.dir.toLowerCase()}` : ''}).`));
     this.renderConditions();
+  }
+
+  /** Land, blocks, roads and the centre island, shared by the route map and the debrief map. */
+  private drawMapBase(map: Element): void {
+    const mp = (phi: number, d: number, o: number) => {
+      const p = roadPt(phi, d, o);
+      return { x: 150 + p.x, y: 150 + p.y };
+    };
+    svgEl('rect', { x: 0, y: 0, width: 300, height: 300, fill: 'var(--map-land)' }, map);
+    for (let x = 4; x < 300; x += 26) {
+      for (let y = 4; y < 300; y += 26) {
+        const cx = x + 11;
+        const cy = y + 11;
+        if (Math.abs(cx - 150) < 24 || Math.abs(cy - 150) < 24 || Math.hypot(cx - 150, cy - 150) < 70) continue;
+        const park = (x * 7 + y * 3) % 9 === 0;
+        svgEl('rect', { x, y, width: 22, height: 22, rx: 3, fill: park ? 'var(--map-park)' : 'var(--map-block)' }, map);
+      }
+    }
+    const roadLine = (stroke: string, width: number) => {
+      for (const r of ROADS) {
+        const a = mp(r.phi, 40, 0);
+        const b = mp(r.phi, 160, 0);
+        svgEl('line', { x1: a.x, y1: a.y, x2: b.x, y2: b.y, stroke, 'stroke-width': width }, map);
+      }
+      svgEl('circle', { cx: 150, cy: 150, r: 44, fill: 'none', stroke, 'stroke-width': width }, map);
+    };
+    roadLine('var(--map-casing)', 22);
+    roadLine('var(--map-road)', 18);
+    svgEl('circle', { cx: 150, cy: 150, r: 34, fill: 'var(--map-park)' }, map);
   }
 
   /* ---------- static pieces ---------- */

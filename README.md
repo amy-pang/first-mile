@@ -7,11 +7,16 @@ Built for **Hackachusetts 2026 · Civic track**.
 ## Features
 
 - **Free steering.** Steer with the arrow keys or the on-screen buttons. The wheels straighten when you let go, and you can miss your exit and go around again.
-- **Driver's-seat view.** You see the road through the windshield, with a steering wheel that turns, a speedometer, a rear-view mirror, a nav screen and a dashboard trip clock.
+- **Rain.** Choose rainy weather for slick roads, longer stopping distances, wipers and a grey sky. The Massachusetts rule *wipers on, headlights on* is checked: press L to turn your lights on.
+- **Emergency vehicle.** Tick "Emergency vehicle" and an ambulance with lights and a siren comes through the rotary from your left. Wait for it at the yield line, keep moving inside the rotary, and pull over once you've exited ahead of it. The siren is panned so you can hear which side it's on.
+- **Debrief map.** After each run, the result card shows the line you drove with a numbered dot at every spot where you broke a rule.
+- **Sound.** A quiet cabin mix: a soft engine hum that climbs through the gears, road and wind noise, curb rumble, blinker ticks, rain and wipers, a siren, a horn tap when you cut someone off, a crash, and gentle coaching chimes. All generated live with the Web Audio API, so there are no sound files. Press M to mute.
+- **Driver's-seat view.** You see the road through the windshield, with a steering wheel that turns, a speedometer, a rear-view mirror and left and right side mirrors (flipped like real mirrors), a nav screen and a dashboard trip clock.
 - **Massachusetts-style signs.** Speed limit, rotary diagram with route shields, rotary warning with a 20 mph advisory, pedestrian crossing, the "State Law" crosswalk sign, Yield and One Way. Each sign pops up with an explanation as you approach it.
 - **Route map.** Choose your start and destination around the rotary (US 20 Allston, MA 2A Cambridge, MA 16 Somerville, MA 2 West Arlington).
 - **Trip times.** Set when you leave and when you need to arrive. Your departure time sets traffic (rush hour, moderate, light) and lighting (day, sunrise, sunset, night). The trip clock runs 20× real time.
 - **Rule checks and coaching.** Yielding to circulating traffic, looking left, stopping for pedestrians, speed, not stopping inside the rotary, signaling your exit, keeping right of the yellow line, staying on the road and out of the centre island, and taking the right exit. Arriving late never costs points; speeding does.
+- **Score based on driving habits.** 100 points across six weighted categories: right of way (30), speed control (20), following distance (15, two-second rule, three in rain), lane position and steering (15), signals and checks (12) and rotary flow (8). Steady habits lose points every second they slip, scaled by how far off you are; one-off rules lose a fixed amount. Pass with 80+ and no critical error (collision, occupied crosswalk, failing to yield, pulling out in front of an ambulance). Taking the wrong exit or arriving late costs nothing. The result card shows the breakdown.
 - **Rules and signs guide.** Plain-language explanations of rotary rules and other Massachusetts rules newcomers often miss.
 
 ## Getting started
@@ -35,6 +40,8 @@ npm run typecheck  # type-check only
 | Steer left / right | Left / Right | ← → or A D |
 | Look left | Look left | Q |
 | Signal right | Signal | E |
+| Headlights | Lights | L |
+| Sound on/off | Sound on | M |
 | Pause | Pause | P |
 | Restart | New run | R |
 
@@ -50,6 +57,7 @@ src/
   sim.ts            Traffic, pedestrians, player car and rule checks (no DOM or three.js)
   world.ts          three.js scene, lighting, signs, meshes, cameras and mirror
   signs.ts          Canvas artwork and explanations for every sign
+  audio.ts          Synthesised engine, road, rain, siren, blinker, horn and crash sounds
   trip.ts           Trip times, traffic and lighting by time of day
   ui.ts             Controls, instruments, route map, coach feed, guide
   style.css         Styles

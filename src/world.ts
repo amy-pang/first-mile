@@ -4,9 +4,12 @@ import { DCW, DEG, DEND, DY, R_IN, R_OUT, ROADS, RW, TAU, type Pt } from './cons
 import { add, lerpAngle, pickOne, rand, ringPt, roadPt, tanAt, U, yawFor } from './math';
 import type { Simulation } from './sim';
 import { SIGNS, type SignSpec } from './signs';
-import type { Phase } from './trip';
+import type { Phase, Weather } from './trip';
 
 const PPM = 160; // sign texture resolution, pixels per metre
+const RAIN_DROPS = 1500;
+/** Half-size of the box of rain kept around the driver, in metres. */
+const RAIN_BOX = 22;
 
 interface Layer {
   color: number;
@@ -45,6 +48,18 @@ export class World {
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(72, 16 / 10, 0.25, 700);
   readonly mirrorCam = new THREE.PerspectiveCamera(30, 3.6, 0.5, 400);
+  /** Door mirrors: each looks back and a little outward from its side of the car. */
+  readonly leftCam = new THREE.PerspectiveCamera(22, 1.55, 0.3, 300);
+  readonly rightCam = new THREE.PerspectiveCamera(22, 1.55, 0.3, 300);
+
+  /**
+   * Mirrors are rendered into a texture, then drawn back left-to-right flipped, the way a real mirror shows
+   * the road behind you. A car in the lane to your left appears on the left of the glass.
+   */
+  private readonly mirrors: { el: HTMLElement; cam: THREE.PerspectiveCamera; rt: THREE.WebGLRenderTarget }[];
+  private readonly flipScene = new THREE.Scene();
+  private readonly flipCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  private readonly flipMat = new THREE.MeshBasicMaterial({ depthTest: false, depthWrite: false, toneMapped: false });
 
   /** Smoothed view heading, head turn and steering-wheel angle (degrees). */
   readonly cam = { h: -Math.PI / 2, prevH: -Math.PI / 2, yaw: 0, steer: 0 };
@@ -59,6 +74,12 @@ export class World {
   private readonly carMeshes = new Map<number, THREE.Group>();
   private readonly pedMeshes = new Map<number, THREE.Group>();
   private readonly lights: Record<Phase, LightPreset>;
+  private readonly rainSky = skyTex(['#4B5560', '#6E7882', '#8A939B']);
+  private readonly rainNightSky = skyTex(['#05070B', '#0E141C', '#171E27']);
+  private readonly rain: THREE.LineSegments<THREE.BufferGeometry, THREE.LineBasicMaterial>;
+  private phase: Phase = 'day';
+  private wet = false;
+  private headlights = false;
   private maxAniso = 4;
 
   private readonly poleMat = new THREE.MeshLambertMaterial({ color: 0x8a9096 });
@@ -75,7 +96,14 @@ export class World {
     tailOn: new THREE.MeshBasicMaterial({ color: 0xff2a1f }),
     tailOff: new THREE.MeshBasicMaterial({ color: 0x6e1a16 }),
     head: new THREE.MeshBasicMaterial({ color: 0xfff3cf }),
+    redOn: new THREE.MeshBasicMaterial({ color: 0xff2020 }),
+    redOff: new THREE.MeshBasicMaterial({ color: 0x5a1010 }),
+    blueOn: new THREE.MeshBasicMaterial({ color: 0x2a6bff }),
+    blueOff: new THREE.MeshBasicMaterial({ color: 0x10204a }),
+    stripe: new THREE.MeshLambertMaterial({ color: 0xd8262a }),
   };
+  private readonly barGeo = new THREE.BoxGeometry(0.5, 0.18, 0.7);
+  private readonly stripeGeo = new THREE.BoxGeometry(4.42, 0.16, 1.87);
   private readonly bodyMats = new Map<string, THREE.MeshLambertMaterial>();
   private readonly pedGeo = {
     body: new THREE.CylinderGeometry(0.22, 0.27, 0.95, 8),
@@ -88,9 +116,19 @@ export class World {
   };
   private readonly pedBodyMats = new Map<string, THREE.MeshLambertMaterial>();
 
-  constructor(canvas: HTMLCanvasElement, private readonly stage: HTMLElement, private readonly mirrorEl: HTMLElement) {
+  constructor(canvas: HTMLCanvasElement, private readonly stage: HTMLElement, mirrorEl: HTMLElement, sideEls: [HTMLElement, HTMLElement]) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+    const rt = () => new THREE.WebGLRenderTarget(4, 4);
+    this.mirrors = [
+      { el: mirrorEl, cam: this.mirrorCam, rt: rt() },
+      { el: sideEls[0], cam: this.leftCam, rt: rt() },
+      { el: sideEls[1], cam: this.rightCam, rt: rt() },
+    ];
+    const quad = new THREE.PlaneGeometry(2, 2);
+    const uv = quad.getAttribute('uv') as THREE.BufferAttribute;
+    for (let i = 0; i < uv.count; i++) uv.setX(i, 1 - uv.getX(i));
+    this.flipScene.add(new THREE.Mesh(quad, this.flipMat));
     this.scene.fog = this.fog;
     this.lights = {
       day: { sky: skyTex(['#7FA9CC', '#BFD4E3', '#DDE6EA']), fog: 0xd6e1e7, near: 110, far: 430, hemi: 0.85, sun: 0.7, flat: 1, sign: 1, beam: 0 },
@@ -110,6 +148,21 @@ export class World {
       color: 0xfff1c2, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
     }));
     this.scene.add(this.beam);
+
+    // Rain: short falling streaks in a box that follows the camera.
+    const rp = new Float32Array(RAIN_DROPS * 6);
+    for (let i = 0; i < RAIN_DROPS; i++) {
+      const x = rand(-RAIN_BOX, RAIN_BOX);
+      const y = rand(0, 14);
+      const z = rand(-RAIN_BOX, RAIN_BOX);
+      rp.set([x, y, z, x + 0.03, y - 0.45, z], i * 6);
+    }
+    const rg = new THREE.BufferGeometry();
+    rg.setAttribute('position', new THREE.BufferAttribute(rp, 3));
+    this.rain = new THREE.LineSegments(rg, new THREE.LineBasicMaterial({ color: 0xc8d4de, transparent: true, opacity: 0.45, depthWrite: false }));
+    this.rain.frustumCulled = false;
+    this.rain.visible = false;
+    this.scene.add(this.rain);
   }
 
   resize(): void {
@@ -121,18 +174,32 @@ export class World {
     this.camera.updateProjectionMatrix();
   }
 
-  applyLighting(phase: Phase): void {
+  applyLighting(phase: Phase, weather: Weather = 'clear'): void {
     const L = this.lights[phase];
-    this.scene.background = L.sky;
-    this.fog.color.setHex(L.fog);
-    this.fog.near = L.near;
-    this.fog.far = L.far;
-    this.hemi.intensity = L.hemi;
-    this.sun.intensity = L.sun;
-    for (const m of this.flatMats) m.color.copy(m.userData.base as THREE.Color).multiplyScalar(L.flat);
-    for (const m of this.signMats) m.color.setScalar(L.sign);
-    this.beam.material.opacity = L.beam;
-    this.beam.visible = L.beam > 0;
+    const wet = weather === 'rain';
+    // Overcast rain: grey sky, haze closer in, and everything a little dimmer.
+    const dim = wet ? 0.72 : 1;
+    this.phase = phase;
+    this.wet = wet;
+    this.scene.background = wet ? (phase === 'night' ? this.rainNightSky : this.rainSky) : L.sky;
+    this.fog.color.setHex(wet ? (phase === 'night' ? 0x0e131a : 0x8f979e) : L.fog);
+    this.fog.near = L.near * (wet ? 0.6 : 1);
+    this.fog.far = L.far * (wet ? 0.6 : 1);
+    this.hemi.intensity = L.hemi * dim;
+    this.sun.intensity = L.sun * (wet ? 0.35 : 1);
+    for (const m of this.flatMats) m.color.copy(m.userData.base as THREE.Color).multiplyScalar(L.flat * dim);
+    for (const m of this.signMats) m.color.setScalar(L.sign * (wet ? 0.9 : 1));
+    this.rain.visible = wet;
+    this.rain.material.color.setHex(phase === 'night' ? 0x6c7682 : 0xc8d4de);
+    this.setHeadlights(this.headlights);
+  }
+
+  /** The headlight pool shows only while the lights are on: brightest in the dark, faint in daylight. */
+  setHeadlights(on: boolean): void {
+    this.headlights = on;
+    const op = on ? Math.max(this.lights[this.phase].beam, this.wet ? 0.1 : 0.04) : 0;
+    this.beam.material.opacity = op;
+    this.beam.visible = op > 0;
   }
 
   /* ---------- static scenery ---------- */
@@ -380,7 +447,7 @@ export class World {
 
   /* ---------- moving objects ---------- */
 
-  private makeCar(color: string): THREE.Group {
+  private makeCar(color: string, ems = false): THREE.Group {
     const g = new THREE.Group();
     let bodyMat = this.bodyMats.get(color);
     if (!bodyMat) {
@@ -411,6 +478,20 @@ export class World {
       g.add(h);
     }
     g.userData.tails = tails;
+    if (ems) {
+      // Ambulance: red side stripe and a light bar with one red and one blue lamp.
+      const stripe = new THREE.Mesh(this.stripeGeo, this.carMat.stripe);
+      stripe.position.y = 0.72;
+      g.add(stripe);
+      const bars: THREE.Mesh[] = [];
+      for (const z of [-0.4, 0.4]) {
+        const b = new THREE.Mesh(this.barGeo, this.carMat.redOff);
+        b.position.set(0.2, 1.83, z);
+        g.add(b);
+        bars.push(b);
+      }
+      g.userData.bars = bars;
+    }
     this.scene.add(g);
     return g;
   }
@@ -443,13 +524,20 @@ export class World {
       liveCars.add(c.id);
       let mesh = this.carMeshes.get(c.id);
       if (!mesh) {
-        mesh = this.makeCar(c.color);
+        mesh = this.makeCar(c.color, c.ems);
         this.carMeshes.set(c.id, mesh);
       }
       mesh.position.set(c.pose.x, 0, c.pose.y);
       mesh.rotation.y = -c.pose.h;
       const lamp = c.braking ? this.carMat.tailOn : this.carMat.tailOff;
       for (const t of mesh.userData.tails as THREE.Mesh[]) t.material = lamp;
+      const bars = mesh.userData.bars as THREE.Mesh[] | undefined;
+      if (bars) {
+        // Alternate red and blue about four times a second.
+        const flip = Math.floor(performance.now() / 250) % 2 === 0;
+        bars[0].material = flip ? this.carMat.redOn : this.carMat.redOff;
+        bars[1].material = flip ? this.carMat.blueOff : this.carMat.blueOn;
+      }
     }
     for (const [id, mesh] of this.carMeshes) {
       if (!liveCars.has(id)) {
@@ -489,10 +577,44 @@ export class World {
     this.camera.position.set(seat.x, 1.22, seat.y);
     this.camera.lookAt(seat.x + Math.cos(lookH) * 10, 1.0, seat.y + Math.sin(lookH) * 10);
     this.beam.position.set(pp.x, 0.1, pp.y);
+    if (this.rain.visible) this.moveRain(pp, dt);
     this.beam.rotation.y = -pp.h;
     const back = add(seat, U(cam.h), 0.6);
     this.mirrorCam.position.set(back.x, 1.3, back.y);
     this.mirrorCam.lookAt(back.x - Math.cos(cam.h) * 10, 1.15, back.y - Math.sin(cam.h) * 10);
+    // Door mirrors sit just ahead of the driver, about a metre out from the car's centreline on each side.
+    const door = (c: THREE.PerspectiveCamera, side: -1 | 1) => {
+      const at = add(add(pp, U(cam.h + (side * Math.PI) / 2), 1.0), U(cam.h), 0.6);
+      const look = cam.h + Math.PI - side * 0.22;
+      c.position.set(at.x, 1.1, at.y);
+      c.lookAt(at.x + Math.cos(look) * 10, 0.95, at.y + Math.sin(look) * 10);
+    };
+    door(this.leftCam, -1);
+    door(this.rightCam, 1);
+  }
+
+  /** Drop the rain and wrap each streak around the box that travels with the driver. */
+  private moveRain(c: Pt, dt: number): void {
+    const attr = this.rain.geometry.getAttribute('position') as THREE.BufferAttribute;
+    const a = attr.array as Float32Array;
+    const fall = 16 * dt;
+    for (let i = 0; i < a.length; i += 6) {
+      let x = a[i] - fall * 0.03;
+      let y = a[i + 1] - fall;
+      let z = a[i + 2];
+      if (y < 0) y += 14;
+      if (x < c.x - RAIN_BOX) x += RAIN_BOX * 2;
+      else if (x > c.x + RAIN_BOX) x -= RAIN_BOX * 2;
+      if (z < c.y - RAIN_BOX) z += RAIN_BOX * 2;
+      else if (z > c.y + RAIN_BOX) z -= RAIN_BOX * 2;
+      a[i] = x;
+      a[i + 1] = y;
+      a[i + 2] = z;
+      a[i + 3] = x + 0.03;
+      a[i + 4] = y - 0.45;
+      a[i + 5] = z;
+    }
+    attr.needsUpdate = true;
   }
 
   /** Snap the view straight ahead (used on restart). */
@@ -508,21 +630,29 @@ export class World {
     r.setViewport(0, 0, w, h);
     r.render(this.scene, this.camera);
 
-    // Rear-view mirror: a second camera drawn into the mirror frame's rectangle.
-    const mr = this.mirrorEl.getBoundingClientRect();
+    // Rear-view and door mirrors: each camera renders to its own texture, drawn flipped into its frame.
     const sr = this.stage.getBoundingClientRect();
-    const bw = 5;
-    const x = mr.left - sr.left + bw;
-    const y = mr.top - sr.top + bw;
-    const mw = mr.width - 2 * bw;
-    const mh = mr.height - 2 * bw;
-    if (mw > 4 && mh > 4) {
-      this.mirrorCam.aspect = mw / mh;
-      this.mirrorCam.updateProjectionMatrix();
+    const pr = r.getPixelRatio();
+    for (const m of this.mirrors) {
+      const mr = m.el.getBoundingClientRect();
+      const x = mr.left - sr.left + m.el.clientLeft;
+      const y = mr.top - sr.top + m.el.clientTop;
+      const mw = m.el.clientWidth;
+      const mh = m.el.clientHeight;
+      if (mw <= 4 || mh <= 4) continue;
+      const pw = Math.round(mw * pr);
+      const ph = Math.round(mh * pr);
+      if (m.rt.width !== pw || m.rt.height !== ph) m.rt.setSize(pw, ph);
+      m.cam.aspect = mw / mh;
+      m.cam.updateProjectionMatrix();
+      r.setRenderTarget(m.rt);
+      r.render(this.scene, m.cam);
+      r.setRenderTarget(null);
+      this.flipMat.map = m.rt.texture;
       r.setScissorTest(true);
       r.setScissor(x, h - y - mh, mw, mh);
       r.setViewport(x, h - y - mh, mw, mh);
-      r.render(this.scene, this.mirrorCam);
+      r.render(this.flipScene, this.flipCam);
       r.setScissorTest(false);
       r.setViewport(0, 0, w, h);
     }

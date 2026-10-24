@@ -1,4 +1,5 @@
 import './style.css';
+import { CarAudio } from './audio';
 import { Simulation } from './sim';
 import { UI } from './ui';
 import { World } from './world';
@@ -30,7 +31,10 @@ async function boot(): Promise<void> {
 
   let world: World;
   try {
-    world = new World(document.getElementById('view') as HTMLCanvasElement, stage, document.getElementById('mirror')!);
+    world = new World(document.getElementById('view') as HTMLCanvasElement, stage, document.getElementById('mirror')!, [
+      document.getElementById('mirror-l')!,
+      document.getElementById('mirror-r')!,
+    ]);
   } catch {
     showFailure(stage);
     return;
@@ -38,7 +42,12 @@ async function boot(): Promise<void> {
 
   const sim = new Simulation(ui);
   sim.destIdx = 1 + Math.floor(Math.random() * 3);
-  ui.attach(sim, world);
+  const audio = new CarAudio();
+  ui.attach(sim, world, audio);
+  // Browsers block sound until the visitor interacts with the page.
+  const unlock = () => { if (audio.enabled) audio.unlock(); };
+  window.addEventListener('pointerdown', unlock, { capture: true });
+  window.addEventListener('keydown', unlock, { capture: true });
 
   world.resize();
   new ResizeObserver(() => world.resize()).observe(stage);
@@ -57,6 +66,7 @@ async function boot(): Promise<void> {
     world.sync(sim, ui.paused ? 0 : dt);
     world.render();
     ui.update(dt, t);
+    audio.update(sim, ui.paused, t, world.cam.h);
     requestAnimationFrame(frame);
   };
   world.sync(sim, 0.05);
